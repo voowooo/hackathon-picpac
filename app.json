@@ -1,0 +1,60 @@
+{
+  "expo": {
+    "name": "PicPac Preview",
+    "slug": "picpac-preview",
+    "scheme": "picpac",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.jekkaaq.picpac-preview"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#E6F4FE",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false,
+      "permissions": [
+        "android.permission.RECORD_AUDIO",
+        "android.permission.CAMERA"
+      ]
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Разрешите доступ к галерее, чтобы выбрать фотографии для печати."
+        }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Разрешите доступ к камере, чтобы примерить постер на стену в режиме AR."
+        }
+      ],
+      [
+        "expo-sensors",
+        {
+          "motionPermission": "Разрешите доступ к датчикам движения, чтобы постер оставался закреплённым на стене в режиме AR."
+        }
+      ],
+      [
+        "@stewmore/expo-ar",
+        {
+          "cameraPermission": "Разрешите доступ к камере, чтобы примерить постер на стену в режиме AR.",
+          "arRequired": false
+        }
+      ],
+      "expo-font",
+      "expo-router"
+    ]
+  }
+}

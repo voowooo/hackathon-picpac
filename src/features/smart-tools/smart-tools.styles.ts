@@ -1,0 +1,26 @@
+import { StyleSheet } from 'react-native';
+
+export const smartStyles = StyleSheet.create({
+  panel: { gap: 12, paddingBottom: 20 },
+  text: { color: '#364C49', fontSize: 13, fontWeight: '700' },
+  hint: { color: '#7A8A84', fontSize: 12, lineHeight: 17 },
+  quality: { backgroundColor: '#EEE8DC', borderRadius: 14 },
+  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  tool: { gap: 6, minHeight: 114, padding: 12, borderRadius: 18, borderWidth: 1, borderColor: '#E3DED6', backgroundColor: '#fff' },
+  cell: { flexGrow: 1, flexBasis: '30%' },
+  toolOn: { borderColor: '#DD5757', backgroundColor: '#F8E5DF' },
+  toolIcon: { alignItems: 'center', justifyContent: 'center', width: 36, height: 36, borderRadius: 12, backgroundColor: '#F0F1EB' },
+  toolIconOn: { backgroundColor: '#DD5757' },
+  toolHint: { color: '#7A8A84', fontSize: 10, lineHeight: 14 },
+  selected: { position: 'absolute', right: 8, top: 8 },
+  tabs: { backgroundColor: '#E9E4DC', borderRadius: 14, padding: 4, flexDirection: 'row' },
+  tab: { flex: 1, minHeight: 38, alignItems: 'center', justifyContent: 'center', borderRadius: 11 },
+  tabOn: { backgroundColor: '#fff' },
+  tabText: { color: '#7A8A84', fontSize: 14, fontWeight: '600' },
+  tabTextOn: { color: '#364C49' },
+  qualityHead: { flexDirection: 'row', alignItems: 'center', padding: 12, gap: 8 },
+  qualityTitle: { flex: 1, fontSize: 12, color: '#364C49', fontWeight: '600' },
+  privacy: { color: '#7A8A84', fontSize: 11, textAlign: 'center' },
+  disabled: { opacity: 0.4 },
+  badge: { position: 'absolute', bottom: 5, left: 5, width: 22, height: 22, borderRadius: 11, alignItems: 'center', justifyContent: 'center', backgroundColor: '#F4C98C' },
+});
