@@ -256,3 +256,4 @@ summary { cursor: pointer; }
 .photo-meta span:last-child { white-space: nowrap; flex-shrink: 0; }
 .bulk-bar select { color: var(--text); background: #fff; }
 .bulk-bar ~ .toast { bottom: 96px; }
+.photo-fallback { display: grid; place-items: center; text-align: center; aspect-ratio: 1; padding: 10px; font-size: 12px; color: var(--text-2); background: repeating-linear-gradient(135deg, #f4ede4 0 8px, #ece3d7 8px 16px); }

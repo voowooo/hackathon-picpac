@@ -43,9 +43,18 @@ export async function buildApp(db: DB, cfg: AppConfig = defaultConfig, opts: { l
   await app.register(cors, { origin: true, methods: ["GET", "POST", "PUT", "PATCH", "DELETE"], allowedHeaders: ["Content-Type", "Authorization", "X-Client-Id"] });
   await app.register(multipart, { limits: { fileSize: cfg.maxPhotoBytes, files: 1, fields: 5 } });
 
-  app.setErrorHandler((err: Error & { statusCode?: number }, _req, reply) => {
+  // Журнал событий в терминале сервера (в тестах молчит).
+  const activity = (line: string) => {
+    if (process.env.NODE_TEST_CONTEXT) return;
+    const time = new Date().toLocaleTimeString("ru-RU", { timeZone: "Europe/Minsk" });
+    console.log(`[${time}] ${line}`);
+  };
+
+  app.setErrorHandler((err: Error & { statusCode?: number }, req, reply) => {
+    const status = err instanceof HttpError ? err.status : err.statusCode ?? 500;
+    // Ошибки клиентских запросов печатаем в терминал — так проще разобраться на демо, почему не дошли фото.
+    if (!req.url.startsWith("/api/admin")) activity(`⚠️  ${req.method} ${req.url} → ${status}: ${err.message}`);
     if (err instanceof HttpError) return reply.code(err.status).send({ error: err.message });
-    const status = err.statusCode ?? 500;
     if (status >= 500) app.log.error(err);
     return reply.code(status).send({ error: status >= 500 ? "Внутренняя ошибка сервера" : err.message });
   });
@@ -69,6 +78,7 @@ export async function buildApp(db: DB, cfg: AppConfig = defaultConfig, opts: { l
   app.post("/api/orders", async (req, reply) => {
     const order = createOrder(db, (req.body ?? {}) as Parameters<typeof createOrder>[1]);
     emit("order.created", { order: toAdminOrder(order) });
+    activity(`🧾 Новый заказ ${order.id}: ${order.title}, ${order.total.toFixed(2)} BYN, ждём фото: ${order.photo_count} (с ${req.ip})`);
     return reply.code(201).send(toClientOrder(order));
   });
 
@@ -119,6 +129,7 @@ export async function buildApp(db: DB, cfg: AppConfig = defaultConfig, opts: { l
       .run(id, slotId, filename, file.filename?.slice(0, 200) ?? null, file.mimetype, size, now);
     if (!order.preview_url) db.prepare("UPDATE orders SET preview_url = ? WHERE id = ?").run(`/api/photos/${filename}`, id);
     emit("order.photo", { orderId: id, uploaded: count + 1, expected: order.photo_count });
+    activity(`📷 ${id}: фото ${count + 1} из ${order.photo_count} — ${file.mimetype}, ${(size / 1024 / 1024).toFixed(2)} МБ${ext === ".heic" || ext === ".heif" ? " (HEIC: в браузере не откроется)" : ""}`);
     return reply.code(201).send({ id: Number(result.lastInsertRowid), url: `/api/photos/${filename}` });
   });
 

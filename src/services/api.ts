@@ -200,8 +200,6 @@ export async function uploadOrderPhotos(orderId: string, cfg: ProductConfig, pho
         break;
       } catch (e) {
         lastError = e instanceof Error ? e.message : String(e);
-        // Пишем в лог Metro, чтобы по телефону понять, почему фото не доехало.
-        console.warn(`[uploadOrderPhotos] попытка ${attempt} для ${photo!.id}:`, lastError);
         // Ошибку проверки (формат, размер) повторять бессмысленно.
         if (e instanceof ApiError && e.status >= 400 && e.status < 500) break;
         if (attempt < 3) await new Promise((r) => setTimeout(r, attempt * 1500));
