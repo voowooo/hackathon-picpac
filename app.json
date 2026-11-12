@@ -55,6 +55,17 @@
       ],
       "expo-font",
       "expo-router"
-    ]
+    ],
+    "extra": {
+      "router": {
+        "asyncRoutes": {
+          "web": true
+        }
+      },
+      "eas": {
+        "projectId": "55de2fcc-8e7e-4bd6-8101-07948b90f4cb"
+      }
+    },
+    "owner": "jekkaaq"
   }
 }
