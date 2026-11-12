@@ -1,5 +1,9 @@
 import Constants from "expo-constants";
+import { manipulateAsync, SaveFormat } from "expo-image-manipulator";
 import { Platform } from "react-native";
+// Нативная multipart-загрузка: RN-шный fetch с FormData { uri, type } на телефоне
+// часто падает (new architecture), uploadAsync идёт через нативный URLSession.
+import * as FileSystem from "expo-file-system/legacy";
 import { COVER_URLS } from "../config/catalog";
 import type { MockOrder, Photo, ProductConfig } from "../types/index";
 import { storage } from "./storage";
@@ -129,23 +133,48 @@ export async function uploadOrderPhotos(orderId: string, cfg: ProductConfig, pho
   const jobs = cfg.slots.filter((s) => s.photoId).map((s) => ({ slotId: s.id, photo: photos.find((p) => p.id === s.photoId) })).filter((j) => j.photo);
   let ok = 0;
   for (const { slotId, photo } of jobs) {
+    let uri = photo!.uri;
+    let ext = (/\.(\w+)(?:\?|$)/.exec(uri)?.[1] ?? "jpg").toLowerCase();
     try {
-      const form = new FormData();
-      form.append("slotId", slotId);
-      const uri = photo!.uri;
-      const ext = (/\.(\w+)(?:\?|$)/.exec(uri)?.[1] ?? "jpg").toLowerCase();
+      // iPhone-фото могут прийти как HEIC: сервер сохранит файл, но превью
+      // в админке (браузер) его не отрисует — перекодируем в JPEG до загрузки.
+      if (Platform.OS !== "web" && (ext === "heic" || ext === "heif")) {
+        const jpeg = await manipulateAsync(uri, [], { compress: 0.85, format: SaveFormat.JPEG });
+        uri = jpeg.uri;
+        ext = "jpg";
+      }
+      const mime = MIME_BY_EXT[ext] ?? "image/jpeg";
       if (Platform.OS === "web") {
         const blob = await (await fetch(uri)).blob();
-        const type = blob.type || MIME_BY_EXT[ext] || "image/jpeg";
+        const type = blob.type || mime;
+        const form = new FormData();
+        form.append("slotId", slotId);
         form.append("photo", new Blob([blob], { type }), `${photo!.id}.${type.split("/")[1] ?? "jpg"}`);
+        await request(`/orders/${encodeURIComponent(orderId)}/photos`, { method: "POST", headers: { "X-Client-Id": clientId }, body: form }, 60000);
       } else {
-        // React Native понимает объект { uri, name, type } в FormData.
-        form.append("photo", { uri, name: `${photo!.id}.${ext}`, type: MIME_BY_EXT[ext] ?? "image/jpeg" } as unknown as Blob);
+        // React Native: нативная загрузка файла по uri — иначе fetch + FormData
+        // на устройстве молча обрывается и фото в админку не доходят.
+        const url = `${API_URL}/api/orders/${encodeURIComponent(orderId)}/photos`;
+        if (!API_URL) throw new ApiError(0, "API не настроен");
+        const res = await FileSystem.uploadAsync(url, uri, {
+          uploadType: FileSystem.FileSystemUploadType.MULTIPART,
+          fieldName: "photo",
+          mimeType: mime,
+          parameters: { slotId },
+          httpMethod: "POST",
+          // FOREGROUND: загрузка завершится, пока открыт экран заказов.
+          sessionType: FileSystem.FileSystemSessionType.FOREGROUND,
+          headers: { "X-Client-Id": clientId },
+        });
+        if (res.status < 200 || res.status >= 300) {
+          throw new ApiError(res.status, res.body?.slice(0, 200) || `Сервер ответил ${res.status}`);
+        }
       }
-      await request(`/orders/${encodeURIComponent(orderId)}/photos`, { method: "POST", headers: { "X-Client-Id": clientId }, body: form }, 60000);
       ok += 1;
-    } catch {
-      // Пропускаем: менеджер увидит в админке «загружено N из M».
+    } catch (e) {
+      // Ошибка одной фотографии не отменяет остальные; пишем её в лог Metro,
+      // чтобы по телефону понять, почему фото не доехало до сервера.
+      console.warn(`[uploadOrderPhotos] не удалось загрузить ${photo!.id} (${uri.slice(0, 60)}):`, e instanceof ApiError ? `${e.status} ${e.message}` : e);
     }
   }
   return { ok, total: jobs.length };

@@ -5,6 +5,15 @@ export const money = (n: number) => `${n.toFixed(2).replace(".", ",")} BYN`;
 
 export const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n));
 
+/** Русские склонения: plural(2, "заказ", "заказа", "заказов") → «заказа». */
+export function plural(n: number, one: string, few: string, many: string) {
+  const m10 = n % 10;
+  const m100 = n % 100;
+  if (m10 === 1 && m100 !== 11) return one;
+  if (m10 >= 2 && m10 <= 4 && (m100 < 11 || m100 > 14)) return few;
+  return many;
+}
+
 /** «фото 2», «фото 2 и 5», «фото 2, 3 и 5» — порядковые номера в списке снимков. */
 export function formatListedPhotoNumbers(nums: number[]): string {
   const unique = [...new Set(nums)].filter((n) => n > 0).sort((a, b) => a - b);
