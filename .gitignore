@@ -6,6 +6,10 @@ web-build/
 .env.local
 .DS_Store
 
+# Native build artifacts (CNG — генерируются из app.json, не хранятся в репо)
+/ios
+/android
+
 # backend / admin
 server/data/
 server/.env
