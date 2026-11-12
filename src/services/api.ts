@@ -1,6 +1,9 @@
 import Constants from "expo-constants";
 import { ImageManipulator, SaveFormat } from "expo-image-manipulator";
 import { Platform } from "react-native";
+// Нативная multipart-загрузка: RN-шный fetch с FormData { uri, type } на телефоне
+// молча обрывается (new architecture), uploadAsync идёт через нативный URLSession.
+import * as FileSystem from "expo-file-system/legacy";
 import { COVER_URLS } from "../config/catalog";
 import type { MockOrder, Photo, ProductConfig } from "../types/index";
 import { storage } from "./storage";
@@ -154,17 +157,33 @@ async function prepareNativeUpload(photo: Photo): Promise<UploadFile> {
 }
 
 async function uploadOne(orderId: string, clientId: string, slotId: string, photo: Photo) {
-  const form = new FormData();
-  form.append("slotId", slotId);
+  const path = `/orders/${encodeURIComponent(orderId)}/photos`;
   if (Platform.OS === "web") {
+    const form = new FormData();
+    form.append("slotId", slotId);
     const blob = await (await fetch(photo.uri)).blob();
     const type = blob.type || "image/jpeg";
     form.append("photo", new Blob([blob], { type }), `${photo.id}.${type.split("/")[1] ?? "jpg"}`);
+    await request(path, { method: "POST", headers: { "X-Client-Id": clientId }, body: form }, 90000);
   } else {
-    // React Native понимает объект { uri, name, type } в FormData.
-    form.append("photo", (await prepareNativeUpload(photo)) as unknown as Blob);
+    // React Native: нативная загрузка файла по uri через URLSession — fetch + FormData
+    // на устройстве молча обрывается и фото в админку не доходят.
+    if (!API_URL) throw new ApiError(0, "API не настроен");
+    const file = await prepareNativeUpload(photo);
+    const res = await FileSystem.uploadAsync(`${API_URL}/api${path}`, file.uri, {
+      uploadType: FileSystem.FileSystemUploadType.MULTIPART,
+      fieldName: "photo",
+      mimeType: file.type,
+      parameters: { slotId },
+      httpMethod: "POST",
+      // FOREGROUND: загрузка завершится, пока открыт экран заказов.
+      sessionType: FileSystem.FileSystemSessionType.FOREGROUND,
+      headers: { "X-Client-Id": clientId },
+    });
+    if (res.status < 200 || res.status >= 300) {
+      throw new ApiError(res.status, res.body?.slice(0, 200) || `Сервер ответил ${res.status}`);
+    }
   }
-  await request(`/orders/${encodeURIComponent(orderId)}/photos`, { method: "POST", headers: { "X-Client-Id": clientId }, body: form }, 90000);
 }
 
 // Загружаем фото из ячеек макета по одному, с повторами; ошибки не прерывают остальные загрузки.
@@ -181,6 +200,8 @@ export async function uploadOrderPhotos(orderId: string, cfg: ProductConfig, pho
         break;
       } catch (e) {
         lastError = e instanceof Error ? e.message : String(e);
+        // Пишем в лог Metro, чтобы по телефону понять, почему фото не доехало.
+        console.warn(`[uploadOrderPhotos] попытка ${attempt} для ${photo!.id}:`, lastError);
         // Ошибку проверки (формат, размер) повторять бессмысленно.
         if (e instanceof ApiError && e.status >= 400 && e.status < 500) break;
         if (attempt < 3) await new Promise((r) => setTimeout(r, attempt * 1500));
