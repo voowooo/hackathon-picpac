@@ -127,3 +127,72 @@ test("поток событий: новый заказ и смена стату�
   assert.equal(updated.statusIndex, 1);
   ctrl.abort();
 });
+
+const auth = () => ({ authorization: `Bearer ${token}` });
+
+test("качество фото из приложения попадает в паспорт и состав", async () => {
+  const order = (await app.inject({
+    method: "POST", url: "/api/orders",
+    payload: {
+      clientId: "c2", recipient: { name: "Олег", phone: "+375291112233", address: "Минск" }, deliveryId: "courier", paymentId: "card", photoCount: 1,
+      config: { category: "poster", posterSizeId: "50x70", slots: [{ id: "poster-slot-0", photoId: "a" }] },
+      photoInfo: { "poster-slot-0": { width: 800, height: 600, lowRes: true, issues: ["темновато"], score: 41 }, "bad slot!": { issues: ["x"] } },
+    },
+  })).json();
+  const form = new FormData();
+  form.append("slotId", "poster-slot-0");
+  form.append("photo", new Blob([Buffer.from("img")], { type: "image/jpeg" }), "p.jpg");
+  await fetch(`${base}/api/orders/${order.id}/photos`, { method: "POST", headers: { "X-Client-Id": "c2" }, body: form });
+
+  const detail = (await app.inject({ url: `/api/admin/orders/${order.id}`, headers: auth() })).json();
+  assert.deepEqual(Object.keys(detail.config.photoInfo), ["poster-slot-0"]);
+  const res = await fetch(`${base}/api/admin/orders/${order.id}/print-pack`, { headers: auth() });
+  const files = readZip(Buffer.from(await res.arrayBuffer()));
+  assert.match(files["Паспорт заказа.txt"].toString(), /Постер: мало пикселей для формата, темновато/);
+  assert.match(files["Состав.csv"].toString(), /800×600;мало пикселей для формата, темновато/);
+});
+
+test("массовая смена статуса пропускает отменённые и шлёт события", async () => {
+  const res = await app.inject({ method: "POST", url: "/api/admin/orders/bulk", headers: auth(), payload: { ids: ["ord-1001", "ord-1002", "nope"], statusIndex: 4, comment: "партия" } });
+  assert.equal(res.statusCode, 200);
+  const body = res.json();
+  assert.ok(body.skipped.some((s: { id: string }) => s.id === "nope"));
+  for (const id of body.updated) {
+    const o = (await app.inject({ url: `/api/admin/orders/${id}`, headers: auth() })).json();
+    assert.equal(o.statusIndex, 4);
+  }
+  assert.equal((await app.inject({ method: "POST", url: "/api/admin/orders/bulk", headers: auth(), payload: { ids: [] } })).statusCode, 400);
+});
+
+test("общий пакет к печати на несколько заказов", async () => {
+  const ids = ["ord-1001", "ord-1002"];
+  const res = await fetch(`${base}/api/admin/orders/bulk-print-pack`, { method: "POST", headers: { ...auth(), "content-type": "application/json" }, body: JSON.stringify({ ids }) });
+  assert.equal(res.status, 200);
+  assert.equal(res.headers.get("x-order-count"), "2");
+  const names = Object.keys(readZip(Buffer.from(await res.arrayBuffer())));
+  assert.ok(names.includes("Сводка.csv"));
+  assert.ok(names.includes("ord-1001/Паспорт заказа.txt"));
+  assert.ok(names.includes("ord-1002/Состав.csv"));
+});
+
+test("выгрузка заказов в CSV учитывает фильтры", async () => {
+  const res = await fetch(`${base}/api/admin/orders/export.csv?category=poster`, { headers: auth() });
+  assert.equal(res.status, 200);
+  // res.text() съедает BOM, поэтому проверяем сырые байты.
+  const raw = Buffer.from(await res.arrayBuffer());
+  assert.deepEqual([...raw.subarray(0, 3)], [0xef, 0xbb, 0xbf], "нужен BOM для Excel");
+  const lines = raw.subarray(3).toString("utf8").trim().split("\r\n");
+  assert.ok(lines[0].startsWith("Заказ;Дата;Статус"));
+  assert.ok(lines.length > 1);
+  assert.ok(lines.slice(1).every((l) => l.includes("Постер")));
+});
+
+test("дашборд за выбранный период", async () => {
+  const s7 = (await app.inject({ url: "/api/admin/stats?days=7", headers: auth() })).json();
+  const s90 = (await app.inject({ url: "/api/admin/stats?days=90", headers: auth() })).json();
+  assert.equal(s7.daily.length, 7);
+  assert.equal(s90.daily.length, 90);
+  assert.equal(s7.period.days, 7);
+  assert.ok(s90.period.orders >= s7.period.orders);
+  assert.equal((await app.inject({ url: "/api/admin/stats?days=13", headers: auth() })).json().period.days, 14);
+});

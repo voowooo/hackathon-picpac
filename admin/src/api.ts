@@ -66,11 +66,11 @@ export type OrderDetail = Order & {
 
 export type Stats = {
   totals: { orders: number; revenue: number; avgCheck: number; active: number; cancelled: number };
-  last30: { orders: number; revenue: number };
+  period: { days: number; orders: number; revenue: number; avgCheck: number; prevOrders: number; prevRevenue: number };
   byStatus: { statusIndex: number; label: string; count: number }[];
   byCategory: { category: string; label: string; count: number; revenue: number }[];
   daily: { day: number; orders: number; revenue: number }[];
-  promos: { code: string; orders: number; discount: number }[];
+  promos: { code: string; orders: number; discount: number; revenue: number }[];
   recent: Order[];
 };
 
@@ -88,9 +88,11 @@ export const ORDER_STATUSES = ["Принят", "В печати", "Готов", 
 export const CATEGORIES: Record<string, string> = { print: "Фотопечать", photobook: "Фотокнига", poster: "Постер", postcard: "Открытка" };
 
 // Скачивание файла с авторизацией: fetch → blob → временная ссылка.
-export async function downloadFile(path: string) {
+export async function downloadFile(path: string, init: { method?: string; body?: unknown } = {}) {
   const token = auth.token;
-  const res = await fetch(`/api${path}`, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+  const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
+  if (init.body !== undefined) headers["Content-Type"] = "application/json";
+  const res = await fetch(`/api${path}`, { method: init.method ?? "GET", headers, body: init.body !== undefined ? JSON.stringify(init.body) : undefined });
   if (res.status === 401) {
     auth.clear();
     onUnauthorized();

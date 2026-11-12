@@ -172,16 +172,32 @@ export function estimatePrice(cfg: ProductConfig) {
 
 // Сколько снимков в макете имеют низкое разрешение для выбранного формата (≈120 dpi).
 export function lowResCount(cfg: ProductConfig, photos: Photo[]): number {
+  return cfg.slots.filter((s) => slotLowRes(cfg, photoById(photos, s.photoId))).length;
+}
+
+// Хватает ли пикселей снимку для выбранного формата (≈120 dpi по длинной стороне).
+export function slotLowRes(cfg: ProductConfig, p: Photo | undefined): boolean {
   let longCm = 0;
   if (cfg.category === "print") {
     longCm = Math.max(...(PRINT_FORMATS.find((f) => f.id === cfg.printFormatId)?.id ?? "10x15").split("x").map(Number));
   } else if (cfg.category === "poster") {
     longCm = Math.max(...(POSTER_SIZES.find((s) => s.id === cfg.posterSizeId)?.label ?? "30×40").split("×").map((x) => parseFloat(x)));
   }
-  if (!longCm) return 0;
+  if (!longCm) return false;
   const need = (longCm / 2.54) * 120;
-  return cfg.slots.filter((s) => {
+  return !!p?.width && !!p?.height && Math.max(p.width, p.height) < need;
+}
+
+// Сведения о качестве каждой заполненной ячейки — уходят в заказ, чтобы типография видела проблемы.
+export function slotPhotoInfo(cfg: ProductConfig, photos: Photo[]) {
+  const out: Record<string, { width?: number; height?: number; score?: number; issues: string[]; maxPrintWidthCm?: number; maxPrintHeightCm?: number; lowRes: boolean }> = {};
+  for (const s of cfg.slots) {
     const p = photoById(photos, s.photoId);
-    return !!p?.width && !!p?.height && Math.max(p.width, p.height) < need;
-  }).length;
+    if (!p) continue;
+    out[s.id] = {
+      width: p.width, height: p.height, score: p.quality?.score, issues: p.quality?.issues ?? [],
+      maxPrintWidthCm: p.quality?.maxPrintWidthCm, maxPrintHeightCm: p.quality?.maxPrintHeightCm, lowRes: slotLowRes(cfg, p),
+    };
+  }
+  return out;
 }

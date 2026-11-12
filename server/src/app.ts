@@ -2,6 +2,7 @@ import cors from "@fastify/cors";
 import multipart from "@fastify/multipart";
 import fastifyStatic from "@fastify/static";
 import Fastify from "fastify";
+import type { FastifyReply } from "fastify";
 import { randomUUID } from "node:crypto";
 import { createWriteStream, existsSync, mkdirSync, unlinkSync } from "node:fs";
 import path from "node:path";
@@ -17,9 +18,10 @@ import {
   stats, toAdminOrder, toClientOrder, updateOrder,
 } from "./orders.ts";
 import type { OrderRow, PromoRow } from "./orders.ts";
-import { buildPrintPack } from "./printpack.ts";
+import { buildPrintPack, toCsv } from "./printpack.ts";
 import { resetDb } from "./seed.ts";
 import { zipStream } from "./zip.ts";
+import type { ZipEntry } from "./zip.ts";
 
 type AppConfig = typeof defaultConfig;
 
@@ -166,7 +168,10 @@ export async function buildApp(db: DB, cfg: AppConfig = defaultConfig, opts: { l
     admin.addHook("onRequest", requireAdmin(cfg.adminSecret));
 
     admin.get("/api/admin/me", async () => ({ ok: true }));
-    admin.get("/api/admin/stats", async () => stats(db));
+    admin.get("/api/admin/stats", async (req) => {
+      const days = Number((req.query as { days?: string }).days);
+      return stats(db, Date.now(), [7, 14, 30, 90].includes(days) ? days : 14);
+    });
 
     // ——— Заказы ———
     admin.get("/api/admin/orders", async (req) => {
@@ -202,6 +207,92 @@ export async function buildApp(db: DB, cfg: AppConfig = defaultConfig, opts: { l
         .header("X-Missing-Photos", String(pack.missing.length))
         .header("Access-Control-Expose-Headers", "Content-Disposition, X-Photo-Count, X-Missing-Photos");
       return reply.send(zipStream(pack.entries));
+    });
+
+    const sendZip = (reply: FastifyReply, name: string, entries: ZipEntry[], headers: Record<string, string> = {}) => {
+      reply
+        .header("Content-Type", "application/zip")
+        .header("Content-Disposition", `attachment; filename="${name.replace(/[^\w.-]/g, "_")}"; filename*=UTF-8''${encodeURIComponent(name)}`)
+        .header("Access-Control-Expose-Headers", ["Content-Disposition", ...Object.keys(headers)].join(", "));
+      for (const [k, v] of Object.entries(headers)) reply.header(k, v);
+      return reply.send(zipStream(entries));
+    };
+
+    const idsFromBody = (body: unknown) => {
+      const ids = (body as { ids?: unknown } | undefined)?.ids;
+      if (!Array.isArray(ids) || !ids.length) throw new HttpError(400, "Не выбраны заказы");
+      if (ids.length > 200) throw new HttpError(400, "За раз — не больше 200 заказов");
+      return [...new Set(ids.map(String))];
+    };
+
+    // Массовая смена статуса / отмена.
+    admin.post("/api/admin/orders/bulk", async (req) => {
+      const ids = idsFromBody(req.body);
+      const { statusIndex, cancelled, comment } = (req.body ?? {}) as { statusIndex?: unknown; cancelled?: unknown; comment?: unknown };
+      if (statusIndex === undefined && cancelled === undefined) throw new HttpError(400, "Не указано действие");
+      const updated: string[] = [];
+      const skipped: { id: string; reason: string }[] = [];
+      for (const id of ids) {
+        const before = getOrder(db, id);
+        if (!before) { skipped.push({ id, reason: "не найден" }); continue; }
+        // Статус отменённого заказа не трогаем — сначала его нужно восстановить.
+        if (statusIndex !== undefined && before.cancelled && cancelled === undefined) { skipped.push({ id, reason: "отменён" }); continue; }
+        const after = updateOrder(db, id, { statusIndex, cancelled, comment });
+        if (after.updated_at !== before.updated_at) {
+          updated.push(id);
+          emit("order.updated", { orderId: id, statusIndex: after.status_index, cancelled: !!after.cancelled });
+        }
+      }
+      return { updated, skipped };
+    });
+
+    // Один ZIP на несколько заказов: папка на заказ + общая сводка.
+    admin.post("/api/admin/orders/bulk-print-pack", async (req, reply) => {
+      const ids = idsFromBody(req.body);
+      const entries: ZipEntry[] = [];
+      const summary = [["Заказ", "Продукт", "Состав", "Фото в пакете", "Не хватает фото", "Получатель", "Доставка"]];
+      let photos = 0;
+      let missing = 0;
+      for (const id of ids) {
+        const order = getOrder(db, id);
+        if (!order) continue;
+        const list = orderPhotos(db, id).filter((p) => existsSync(path.join(cfg.uploadsDir, p.filename)));
+        const pack = buildPrintPack(db, order, list, cfg.uploadsDir);
+        entries.push(...pack.entries.map((e) => ({ ...e, name: `${order.id}/${e.name}` })));
+        summary.push([order.id, order.title, order.items, String(pack.photoCount), pack.missing.join("; "), order.customer_name, order.delivery_label]);
+        photos += pack.photoCount;
+        missing += pack.missing.length;
+      }
+      if (!entries.length) throw new HttpError(404, "Заказы не найдены");
+      entries.unshift({ name: "Сводка.csv", data: toCsv(summary) });
+      const stamp = new Date().toISOString().slice(0, 10);
+      return sendZip(reply, `PicPac_к_печати_${stamp}_${ids.length}_заказов.zip`, entries, {
+        "X-Order-Count": String(ids.length), "X-Photo-Count": String(photos), "X-Missing-Photos": String(missing),
+      });
+    });
+
+    // Выгрузка заказов в CSV (Excel) с теми же фильтрами, что и список.
+    admin.get("/api/admin/orders/export.csv", async (req, reply) => {
+      const q = req.query as Record<string, string | undefined>;
+      const rows: string[][] = [["Заказ", "Дата", "Статус", "Продукт", "Состав", "Клиент", "Телефон", "Адрес", "Доставка", "Оплата", "Промокод", "Товар, BYN", "Скидка, BYN", "Доставка, BYN", "Итого, BYN", "Фото"]];
+      for (let offset = 0; ; offset += 200) {
+        const page = listOrders(db, { status: q.status, category: q.category, search: q.search, limit: 200, offset });
+        for (const o of page.items) {
+          rows.push([
+            o.id, new Date(o.createdAt).toLocaleString("ru-RU", { timeZone: "Europe/Minsk" }), o.cancelled ? "Отменён" : o.status,
+            o.title, o.items, o.customer.name, o.customer.phone, o.customer.address, o.delivery.label, o.payment.label, o.promoCode ?? "",
+            ...[o.subtotal, o.discount, o.delivery.price, o.total].map((n) => n.toFixed(2).replace(".", ",")), String(o.photoCount),
+          ]);
+        }
+        if (offset + 200 >= page.total) break;
+      }
+      const stamp = new Date().toISOString().slice(0, 10);
+      const name = `PicPac_заказы_${stamp}.csv`;
+      return reply
+        .header("Content-Type", "text/csv; charset=utf-8")
+        .header("Content-Disposition", `attachment; filename="orders_${stamp}.csv"; filename*=UTF-8''${encodeURIComponent(name)}`)
+        .header("Access-Control-Expose-Headers", "Content-Disposition")
+        .send(toCsv(rows));
     });
 
     // ——— Каталог ———

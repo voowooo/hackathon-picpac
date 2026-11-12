@@ -118,7 +118,28 @@ export type CreateOrderInput = {
   paymentId?: unknown;
   promoCode?: unknown;
   clientTotal?: unknown;
+  photoInfo?: unknown;
 };
+
+// Сведения о качестве фото из приложения (ключ — id ячейки макета).
+export type PhotoInfo = { width?: number; height?: number; score?: number; issues: string[]; maxPrintWidthCm?: number; maxPrintHeightCm?: number; lowRes?: boolean };
+
+function sanitizePhotoInfo(raw: unknown): Record<string, PhotoInfo> {
+  if (!raw || typeof raw !== "object") return {};
+  const out: Record<string, PhotoInfo> = {};
+  const num = (v: unknown) => (Number.isFinite(Number(v)) && v !== null && v !== "" ? Math.round(Number(v) * 10) / 10 : undefined);
+  for (const [slotId, v] of Object.entries(raw as Record<string, unknown>).slice(0, 500)) {
+    if (!/^[\w-]{1,60}$/.test(slotId) || !v || typeof v !== "object") continue;
+    const info = v as Record<string, unknown>;
+    out[slotId] = {
+      width: num(info.width), height: num(info.height), score: num(info.score),
+      maxPrintWidthCm: num(info.maxPrintWidthCm), maxPrintHeightCm: num(info.maxPrintHeightCm),
+      lowRes: info.lowRes === true,
+      issues: (Array.isArray(info.issues) ? info.issues : []).slice(0, 6).map((x) => String(x).slice(0, 120)).filter(Boolean),
+    };
+  }
+  return out;
+}
 
 const str = (v: unknown, max = 500) => String(v ?? "").trim().slice(0, max);
 
@@ -171,7 +192,8 @@ export function createOrder(db: DB, input: CreateOrderInput, now = Date.now()) {
       customer_name, customer_phone, customer_address, delivery_id, delivery_label, payment_id, promo_code, subtotal, discount,
       delivery_price, total, photo_count, preview_url, config) VALUES (?, ?, ?, ?, 0, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)`).run(
       id, clientId, now, now, cfg.category, productTitle(cfg, catalog), str(input.scenario, 200) || "Новый заказ", str(input.items, 500),
-      name, phone, address, delivery.id, delivery.label, paymentId, promoCode, subtotal, discount, delivery.price, total, photoCount, JSON.stringify(cfg),
+      name, phone, address, delivery.id, delivery.label, paymentId, promoCode, subtotal, discount, delivery.price, total, photoCount,
+      JSON.stringify({ ...cfg, photoInfo: sanitizePhotoInfo(input.photoInfo) }),
     );
     db.prepare("INSERT INTO order_events (order_id, created_at, kind, status_index, note, actor) VALUES (?, ?, 'created', 0, ?, 'client')").run(
       id, now, "Заказ оформлен в приложении",
@@ -264,10 +286,12 @@ export function stats(db: DB, now = Date.now(), days = 14) {
   const totals = one<{ orders: number; revenue: number | null; avg: number | null }>(
     "SELECT COUNT(*) AS orders, SUM(total) AS revenue, AVG(total) AS avg FROM orders WHERE cancelled = 0",
   );
-  const since = now - 30 * 86400e3;
-  const last30 = one<{ orders: number; revenue: number | null }>(
-    "SELECT COUNT(*) AS orders, SUM(total) AS revenue FROM orders WHERE cancelled = 0 AND created_at >= ?", since,
-  );
+  // Итоги за выбранный период и за такой же период до него — для сравнения.
+  const span = days * 86400e3;
+  const periodSql = "SELECT COUNT(*) AS orders, SUM(total) AS revenue FROM orders WHERE cancelled = 0 AND created_at >= ? AND created_at < ?";
+  const cur = one<{ orders: number; revenue: number | null }>(periodSql, now - span, now + 1);
+  const prev = one<{ orders: number; revenue: number | null }>(periodSql, now - 2 * span, now - span);
+  const since = now - span;
   const active = one<{ n: number }>(`SELECT COUNT(*) AS n FROM orders WHERE cancelled = 0 AND status_index < ${LAST_STATUS}`).n;
   const cancelled = one<{ n: number }>("SELECT COUNT(*) AS n FROM orders WHERE cancelled = 1").n;
 
@@ -277,7 +301,7 @@ export function stats(db: DB, now = Date.now(), days = 14) {
   }));
 
   const byCategory = CATEGORIES.map((c) => {
-    const r = one<{ n: number; revenue: number | null }>("SELECT COUNT(*) AS n, SUM(total) AS revenue FROM orders WHERE cancelled = 0 AND category = ?", c);
+    const r = one<{ n: number; revenue: number | null }>("SELECT COUNT(*) AS n, SUM(total) AS revenue FROM orders WHERE cancelled = 0 AND category = ? AND created_at >= ?", c, since);
     return { category: c, label: CATEGORY_LABELS[c], count: r.n, revenue: round2(r.revenue ?? 0) };
   });
 
@@ -295,15 +319,19 @@ export function stats(db: DB, now = Date.now(), days = 14) {
     }
   }
 
-  const promos = all<{ code: string; n: number; discount: number }>(
-    "SELECT promo_code AS code, COUNT(*) AS n, SUM(discount) AS discount FROM orders WHERE promo_code IS NOT NULL AND cancelled = 0 GROUP BY promo_code ORDER BY n DESC LIMIT 5",
-  ).map((p) => ({ code: p.code, orders: p.n, discount: round2(p.discount) }));
+  const promos = all<{ code: string; n: number; discount: number; revenue: number }>(
+    "SELECT promo_code AS code, COUNT(*) AS n, SUM(discount) AS discount, SUM(total) AS revenue FROM orders WHERE promo_code IS NOT NULL AND cancelled = 0 AND created_at >= ? GROUP BY promo_code ORDER BY n DESC LIMIT 5",
+    since,
+  ).map((p) => ({ code: p.code, orders: p.n, discount: round2(p.discount), revenue: round2(p.revenue) }));
 
   const recent = all<OrderRow>("SELECT * FROM orders ORDER BY created_at DESC LIMIT 6").map((r) => toAdminOrder(r));
 
   return {
     totals: { orders: totals.orders, revenue: round2(totals.revenue ?? 0), avgCheck: round2(totals.avg ?? 0), active, cancelled },
-    last30: { orders: last30.orders, revenue: round2(last30.revenue ?? 0) },
+    period: {
+      days, orders: cur.orders, revenue: round2(cur.revenue ?? 0), avgCheck: cur.orders ? round2((cur.revenue ?? 0) / cur.orders) : 0,
+      prevOrders: prev.orders, prevRevenue: round2(prev.revenue ?? 0),
+    },
     byStatus, byCategory, daily, promos, recent,
   };
 }

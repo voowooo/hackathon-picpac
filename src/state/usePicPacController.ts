@@ -4,11 +4,11 @@ import { router, usePathname } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Alert, Animated, LayoutAnimation, PanResponder, useWindowDimensions } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { applyRemoteCatalog, COVER_URLS, DELIVERY_OPTIONS, INITIAL_ORDERS, MIN_SPREADS, ORDER_STATUSES, POSTER_SIZES, PRODUCT_TABS, PROMO_CODE, PROMO_DISCOUNT, SPREAD_LAYOUTS } from '../config/catalog';
+import { applyRemoteCatalog, COVER_URLS, DELIVERY_OPTIONS, INITIAL_ORDERS, MIN_SPREADS, ORDER_STATUSES, POSTER_SIZES, PRODUCT_TABS, PROMO_CODE, PROMO_DISCOUNT, SPREAD_LAYOUTS, STATUS_ICONS } from '../config/catalog';
 import { ApiError, createOrder, fetchCatalog, fetchOrders, uploadOrderPhotos, validatePromo } from '../services/api';
 import { SCREEN_DEPTH, SCREEN_PATHS, screenFromPath } from "../config/navigation";
 import { exifLocation, exifTimestamp, geoDistance, makePhotoId } from '../domain/photos';
-import { aiSurcharge, baseEstimate, filledCount, getPrintFinish, lowResCount, makeConfig, normalizeLayouts, pageOfSlotId, productDetails, productTitle, slotPrintFinish, spreadSlotsFor, syncSlots } from '../domain/products';
+import { aiSurcharge, baseEstimate, filledCount, getPrintFinish, lowResCount, makeConfig, normalizeLayouts, pageOfSlotId, productDetails, productTitle, slotPhotoInfo, slotPrintFinish, spreadSlotsFor, syncSlots } from '../domain/products';
 import { AR_POSTER_HEIGHT_M } from '../services/ar';
 import { DRAFTS_KEY, storage } from '../services/storage';
 import { Draft, DropRect, IconName, MockOrder, Panel, Photo, PhotoEdit, PhotoProcessingUpdate, PhotoSlot, ProductCategory, ProductConfig, Screen, ViewRef } from '../types/index';
@@ -222,6 +222,27 @@ export function usePicPacController() {
 
   const [placingOrder, setPlacingOrder] = useState(false);
 
+  const [toast, setToast] = useState<{ id: number; text: string; icon: IconName } | null>(null);
+
+  const showToast = useCallback((text: string, icon: IconName = "checkmark-circle") => setToast({ id: Date.now(), text, icon }), []);
+
+  // Последние известные статусы заказов: при смене (её делает менеджер в админке) показываем уведомление.
+  const knownStatus = useRef<Map<string, string> | null>(null);
+
+  const applyRemoteOrders = useCallback((list: MockOrder[]) => {
+    const key = (o: MockOrder) => `${o.statusIndex}|${o.cancelled ? 1 : 0}`;
+    const prev = knownStatus.current;
+    if (prev) {
+      const changed = list.find((o) => prev.has(o.id) && prev.get(o.id) !== key(o));
+      if (changed) {
+        if (changed.cancelled) showToast(`Заказ ${changed.id} отменён`, "close-circle-outline");
+        else showToast(`Заказ ${changed.id}: ${ORDER_STATUSES[changed.statusIndex].toLowerCase()}`, STATUS_ICONS[changed.statusIndex]);
+      }
+    }
+    knownStatus.current = new Map(list.map((o) => [o.id, key(o)]));
+    setOrders(list);
+  }, [setOrders, showToast]);
+
   useEffect(() => {
     let alive = true;
     (async () => {
@@ -233,13 +254,13 @@ export function usePicPacController() {
         setCatalogVersion((v) => v + 1);
         setApiOnline(true);
         const list = await fetchOrders();
-        if (alive) setOrders(list);
+        if (alive) applyRemoteOrders(list);
       } catch {
         // Сервер недоступен — остаёмся на моках из config/catalog.ts.
       }
     })();
     return () => { alive = false; };
-  }, []);
+  }, [applyRemoteOrders]);
 
   const [drafts, setDrafts] = useState<Draft[]>([]);
 
@@ -250,10 +271,6 @@ export function usePicPacController() {
   const [savedSig, setSavedSig] = useState<string | null>(null);
 
   const draftsLoaded = useRef(false);
-
-  const [toast, setToast] = useState<{ id: number; text: string; icon: IconName } | null>(null);
-
-  const showToast = useCallback((text: string, icon: IconName = "checkmark-circle") => setToast({ id: Date.now(), text, icon }), []);
 
   // Редактор фото (поворот/обрезка): открывается из панели действий над выбранным фото.
   const [editingPhotoId, setEditingPhotoId] = useState<string | null>(null);
@@ -870,16 +887,17 @@ export function usePicPacController() {
 
   const selectedOrder = orders.find((o) => o.id === selectedOrderId);
 
-  // Статусы меняет менеджер в админке — подтягиваем их, пока открыт экран заказов или профиль.
+  // Статусы меняет менеджер в админке — подтягиваем их: чаще на экранах заказов и профиля, реже на остальных.
+  const ordersScreen = screen === "orders" || screen === "profile";
   useEffect(() => {
-    if (!apiOnline || (screen !== "orders" && screen !== "profile")) return;
+    if (!apiOnline) return;
     let alive = true;
     // Ошибку сети игнорируем — остаётся уже загруженный список.
-    const load = () => fetchOrders().then((list) => { if (alive) setOrders(list); }, () => { });
-    void load();
-    const t = setInterval(load, 15000);
+    const load = () => fetchOrders().then((list) => { if (alive) applyRemoteOrders(list); }, () => { });
+    if (ordersScreen) void load();
+    const t = setInterval(load, ordersScreen ? 15000 : 30000);
     return () => { alive = false; clearInterval(t); };
-  }, [apiOnline, screen]);
+  }, [apiOnline, ordersScreen, applyRemoteOrders]);
 
   const activeOrder = orders.find((o) => !o.cancelled && o.statusIndex < ORDER_STATUSES.length - 1);
 
@@ -926,7 +944,7 @@ export function usePicPacController() {
       try {
         const remote = await createOrder({
           config: cfg, scenario, items, photoCount: filled, recipient, deliveryId, paymentId,
-          promoCode: promoValid ? promoCode : undefined, clientTotal: totalPrice,
+          promoCode: promoValid ? promoCode : undefined, clientTotal: totalPrice, photoInfo: slotPhotoInfo(cfg, photos),
         });
         // Пока фото грузятся, показываем локальное превью.
         setOrders((prev) => [{ ...remote, previewUri: localPreview }, ...prev.filter((o) => o.id !== remote.id)]);

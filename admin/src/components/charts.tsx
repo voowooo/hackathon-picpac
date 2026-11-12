@@ -19,10 +19,12 @@ export function RevenueChart({ data }: { data: { day: number; orders: number; re
   const y = (v: number) => pad.top + innerH - (v / top) * innerH;
   const peak = data.reduce((best, d, i) => (d.revenue > data[best].revenue ? i : best), 0);
   const h = hover != null ? data[hover] : null;
+  // Подписи дат: не больше ~8 по оси, от последнего дня назад.
+  const tickEvery = Math.max(1, Math.ceil(data.length / 8));
 
   return (
     <div className="chart">
-      <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label="Выручка по дням за 14 дней" onMouseLeave={() => setHover(null)}>
+      <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label={`Выручка по дням за ${data.length} дн.`} onMouseLeave={() => setHover(null)}>
         {ticks.map((t) => (
           <g key={t}>
             <line x1={pad.left} x2={W - pad.right} y1={y(t)} y2={y(t)} className={t === 0 ? "axis" : "grid"} />
@@ -43,7 +45,7 @@ export function RevenueChart({ data }: { data: { day: number; orders: number; re
             <g key={d.day}>
               {hover === i ? <rect x={pad.left + band * i} y={pad.top} width={band} height={innerH} className="hover-band" /> : null}
               {path ? <path d={path} className="bar" /> : null}
-              {i % 2 === (data.length - 1) % 2 ? (
+              {(data.length - 1 - i) % tickEvery === 0 ? (
                 <text x={cx} y={H - 8} className="tick" textAnchor="middle">{day(d.day)}</text>
               ) : null}
               {i === peak && d.revenue > 0 && hover == null ? (

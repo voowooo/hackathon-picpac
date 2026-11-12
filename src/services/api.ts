@@ -112,6 +112,7 @@ export type CreateOrderPayload = {
   paymentId: string;
   promoCode?: string;
   clientTotal: number;
+  photoInfo?: Record<string, unknown>;
 };
 
 export async function createOrder(payload: CreateOrderPayload): Promise<RemoteOrder> {

@@ -1,7 +1,8 @@
-import { ArrowLeft, Ban, Check, Download, FileArchive, RotateCcw } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Ban, Check, Download, FileArchive, RotateCcw } from "lucide-react";
 import { useState } from "react";
 import { api, downloadFile, ORDER_STATUSES, type OrderDetail } from "../api";
 import { ErrorBox, PageHeader, StatusBadge, Toast, useLoad } from "../components/common";
+import { LayoutPreview, qualityText, type PhotoInfo } from "../components/LayoutPreview";
 import { bytes, dateTime, money, slotLabel } from "../format";
 import { useLiveReload } from "../live";
 
@@ -50,6 +51,8 @@ export function OrderPage({ id }: { id: string }) {
 
   const noteValue = note ?? order.adminNote;
   const cfg = order.config;
+  const photoInfo = (cfg.photoInfo ?? {}) as Record<string, PhotoInfo>;
+  const weak = Object.entries(photoInfo).filter(([, q]) => qualityText(q));
 
   return (
     <>
@@ -102,19 +105,38 @@ export function OrderPage({ id }: { id: string }) {
             </div>
           </section>
 
+          {order.clientId !== "demo" ? (
+            <section className="card">
+              <h2>Макет</h2>
+              <p className="muted small">Так заказ собрал клиент. <AlertTriangle size={12} className="inline-icon" /> — замечание по качеству, перечёркнутая ячейка — фото ещё не загружено.</p>
+              <LayoutPreview config={cfg} photos={order.photos} />
+            </section>
+          ) : null}
+
           <section className="card">
             <h2>Фото к печати <span className="muted">({order.photos.length} из {order.photoCount})</span></h2>
+            {weak.length ? (
+              <div className="quality-banner">
+                <AlertTriangle size={16} />
+                <span>Замечания по качеству: {weak.length} из {order.photos.length || weak.length}. Клиента предупредили в приложении; перед печатью проверьте снимки.</span>
+              </div>
+            ) : null}
             {order.photos.length ? (
               <div className="photo-grid">
-                {order.photos.map((p, i) => (
-                  <a key={p.id} href={p.url} target="_blank" rel="noreferrer" download={p.originalName ?? undefined} className="photo">
-                    <img src={p.url} alt={`Фото ${i + 1}`} loading="lazy" />
-                    <span className="photo-meta">
-                      <span title={p.slotId ? slotLabel(p.slotId) : undefined}>{i + 1}{p.slotId ? ` · ${slotLabel(p.slotId)}` : ""}</span>
-                      <span><Download size={12} /> {bytes(p.size)}</span>
-                    </span>
-                  </a>
-                ))}
+                {order.photos.map((p, i) => {
+                  const q = p.slotId ? photoInfo[p.slotId] : undefined;
+                  const note = qualityText(q);
+                  return (
+                    <a key={p.id} href={p.url} target="_blank" rel="noreferrer" download={p.originalName ?? undefined} className={`photo${note ? " warn" : ""}`}>
+                      <img src={p.url} alt={`Фото ${i + 1}`} loading="lazy" />
+                      {note ? <span className="photo-warn" title={note}><AlertTriangle size={12} /> {note}</span> : null}
+                      <span className="photo-meta">
+                        <span title={p.slotId ? slotLabel(p.slotId) : undefined}>{i + 1}{p.slotId ? ` · ${slotLabel(p.slotId)}` : ""}</span>
+                        <span title={q?.width && q?.height ? `${q.width}×${q.height} px` : undefined}><Download size={12} /> {bytes(p.size)}</span>
+                      </span>
+                    </a>
+                  );
+                })}
               </div>
             ) : (
               <p className="muted">

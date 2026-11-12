@@ -9,7 +9,20 @@ import type { ZipEntry } from "./zip.ts";
 
 type Finish = { margin?: number; marginColor?: string; frame?: number; frameColor?: string };
 type Slot = { id: string; photoId?: string; printFormatId?: string; printFinish?: Finish };
-type Cfg = Record<string, unknown> & { category?: string; slots?: Slot[]; spreadLayouts?: string[] };
+type Quality = { width?: number; height?: number; issues?: string[]; lowRes?: boolean; maxPrintWidthCm?: number; maxPrintHeightCm?: number };
+type Cfg = Record<string, unknown> & { category?: string; slots?: Slot[]; spreadLayouts?: string[]; photoInfo?: Record<string, Quality> };
+
+// Короткое описание проблем снимка для паспорта и CSV.
+export function qualityNote(q: Quality | undefined) {
+  if (!q) return "";
+  const notes = [...(q.lowRes ? ["мало пикселей для формата"] : []), ...(q.issues ?? [])];
+  return [...new Set(notes)].join(", ");
+}
+
+// CSV для Excel: BOM (чтобы открылся в UTF-8) и разделитель «;» для русской локали.
+export function toCsv(rows: string[][]) {
+  return "﻿" + rows.map((r) => r.map(csvCell).join(";")).join("\r\n") + "\r\n";
+}
 
 // Названия из каталога приложения (src/config/catalog.ts), которых нет в базе.
 const SPREAD_LAYOUT_NAMES: Record<string, string> = {
@@ -57,7 +70,7 @@ export function buildPrintPack(db: DB, order: OrderRow, photos: PhotoRow[], uplo
   const baseFinish: Finish = { ...DEFAULT_FINISH, ...(cfg.category === "poster" ? { margin: 10 } : {}), ...((cfg.category === "poster" ? cfg.posterFinish : cfg.printFinish) as Finish | undefined) };
 
   const files: ZipEntry[] = [];
-  const rows: string[][] = [["Файл", "Ячейка макета", "Формат", "Копий", "Оформление", "Исходное имя"]];
+  const rows: string[][] = [["Файл", "Ячейка макета", "Формат", "Копий", "Оформление", "Размер, px", "Замечания по качеству", "Исходное имя"]];
   sorted.forEach((p, i) => {
     const slot = slots.find((s) => s.id === p.slot_id);
     const label = p.slot_id ? slotLabel(p.slot_id) : "Без ячейки";
@@ -77,7 +90,8 @@ export function buildPrintPack(db: DB, order: OrderRow, photos: PhotoRow[], uplo
       finish = finishText(baseFinish);
       qty = 1;
     }
-    rows.push([name, label, format, String(qty), finish, p.original_name ?? ""]);
+    const q = p.slot_id ? cfg.photoInfo?.[p.slot_id] : undefined;
+    rows.push([name, label, format, String(qty), finish, q?.width && q?.height ? `${q.width}×${q.height}` : "", qualityNote(q), p.original_name ?? ""]);
   });
 
   const uploadedSlots = new Set(photos.map((p) => p.slot_id));
@@ -132,6 +146,11 @@ export function buildPrintPack(db: DB, order: OrderRow, photos: PhotoRow[], uplo
   line("Фото в пакете", `${sorted.length} из ${filledSlots.length || order.photo_count}`);
   L.push("Порядок файлов в папке photos/ совпадает с порядком в макете; подробности — в «Состав.csv».");
   if (missing.length) L.push(`ВНИМАНИЕ: не загружены фото для ячеек: ${missing.join("; ")}`);
+  const weak = filledSlots.map((s) => [slotLabel(s.id), qualityNote(cfg.photoInfo?.[s.id])] as const).filter(([, note]) => note);
+  if (weak.length) {
+    L.push("ПРОВЕРЬТЕ КАЧЕСТВО (клиента предупредили в приложении):");
+    for (const [label, note] of weak) L.push(`  • ${label}: ${note}`);
+  }
   if (order.admin_note) { L.push(""); line("Заметка менеджера", order.admin_note); }
   L.push("");
   L.push("ДОСТАВКА", "-".repeat(40));
@@ -144,7 +163,7 @@ export function buildPrintPack(db: DB, order: OrderRow, photos: PhotoRow[], uplo
 
   const passport = L.join("\r\n") + "\r\n";
   // BOM нужен, чтобы Excel открыл CSV в UTF-8; разделитель «;» — для русской локали.
-  const csv = "﻿" + rows.map((r) => r.map(csvCell).join(";")).join("\r\n") + "\r\n";
+  const csv = toCsv(rows);
 
   const entries: ZipEntry[] = [
     { name: "Паспорт заказа.txt", data: "﻿" + passport },
