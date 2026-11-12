@@ -1,3 +1,4 @@
+<<<<<<< Updated upstream
 node_modules/
 .expo/
 dist/
@@ -5,12 +6,19 @@ web-build/
 .env
 .env.local
 .DS_Store
+=======
+/node_modules
+/.expo
+>>>>>>> Stashed changes
 
 # Native build artifacts (CNG — генерируются из app.json, не хранятся в репо)
 /ios
 /android
+<<<<<<< Updated upstream
 
 # backend / admin
 server/data/
 server/.env
 admin/dist/
+=======
+>>>>>>> Stashed changes
