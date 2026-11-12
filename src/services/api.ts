@@ -1,5 +1,5 @@
 import Constants from "expo-constants";
-import { manipulateAsync, SaveFormat } from "expo-image-manipulator";
+import { ImageManipulator, SaveFormat } from "expo-image-manipulator";
 import { Platform } from "react-native";
 // Нативная multipart-загрузка: RN-шный fetch с FormData { uri, type } на телефоне
 // часто падает (new architecture), uploadAsync идёт через нативный URLSession.
@@ -127,55 +127,86 @@ export async function createOrder(payload: CreateOrderPayload): Promise<RemoteOr
 
 const MIME_BY_EXT: Record<string, string> = { jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", webp: "image/webp", heic: "image/heic", heif: "image/heif" };
 
-// Загружаем фото из ячеек макета по одному файлу; ошибки не прерывают остальные загрузки.
+// Форматы, которые браузер админки точно покажет. Остальное (HEIC/HEIF с iPhone и т.п.)
+// перекодируем в JPEG на телефоне: сервер примет и HEIC, но в Chrome он не отобразится.
+const BROWSER_SAFE = new Set(["jpg", "jpeg", "png", "webp"]);
+// Длинная сторона после перекодирования: хватает на постер 50×70 при ~200 dpi.
+const MAX_UPLOAD_SIDE = 6000;
+
+type UploadFile = { uri: string; name: string; type: string };
+
+async function prepareNativeUpload(photo: Photo): Promise<UploadFile> {
+  const ext = (/\.(\w+)(?:\?|$)/.exec(photo.uri)?.[1] ?? "").toLowerCase();
+  if (BROWSER_SAFE.has(ext)) return { uri: photo.uri, name: `${photo.id}.${ext}`, type: MIME_BY_EXT[ext] };
+  try {
+    const ctx = ImageManipulator.manipulate(photo.uri);
+    const longest = Math.max(photo.width ?? 0, photo.height ?? 0);
+    if (longest > MAX_UPLOAD_SIDE && photo.width && photo.height) {
+      const k = MAX_UPLOAD_SIDE / longest;
+      ctx.resize({ width: Math.round(photo.width * k), height: Math.round(photo.height * k) });
+    }
+    const image = await ctx.renderAsync();
+    const saved = await image.saveAsync({ format: SaveFormat.JPEG, compress: 0.92 });
+    image.release();
+    ctx.release();
+    return { uri: saved.uri, name: `${photo.id}.jpg`, type: "image/jpeg" };
+  } catch {
+    // Не смогли перекодировать — отправляем как есть, это лучше, чем ничего.
+    return { uri: photo.uri, name: `${photo.id}.${ext || "jpg"}`, type: MIME_BY_EXT[ext] ?? "image/jpeg" };
+  }
+}
+
+async function uploadOne(orderId: string, clientId: string, slotId: string, photo: Photo) {
+  const path = `/orders/${encodeURIComponent(orderId)}/photos`;
+  if (Platform.OS === "web") {
+    const form = new FormData();
+    form.append("slotId", slotId);
+    const blob = await (await fetch(photo.uri)).blob();
+    const type = blob.type || "image/jpeg";
+    form.append("photo", new Blob([blob], { type }), `${photo.id}.${type.split("/")[1] ?? "jpg"}`);
+    await request(path, { method: "POST", headers: { "X-Client-Id": clientId }, body: form }, 90000);
+  } else {
+    // React Native: нативная загрузка файла по uri через URLSession — fetch + FormData
+    // на устройстве молча обрывается и фото в админку не доходят.
+    if (!API_URL) throw new ApiError(0, "API не настроен");
+    const file = await prepareNativeUpload(photo);
+    const res = await FileSystem.uploadAsync(`${API_URL}/api${path}`, file.uri, {
+      uploadType: FileSystem.FileSystemUploadType.MULTIPART,
+      fieldName: "photo",
+      mimeType: file.type,
+      parameters: { slotId },
+      httpMethod: "POST",
+      // FOREGROUND: загрузка завершится, пока открыт экран заказов.
+      sessionType: FileSystem.FileSystemSessionType.FOREGROUND,
+      headers: { "X-Client-Id": clientId },
+    });
+    if (res.status < 200 || res.status >= 300) {
+      throw new ApiError(res.status, res.body?.slice(0, 200) || `Сервер ответил ${res.status}`);
+    }
+  }
+}
+
+// Загружаем фото из ячеек макета по одному, с повторами; ошибки не прерывают остальные загрузки.
 export async function uploadOrderPhotos(orderId: string, cfg: ProductConfig, photos: Photo[]) {
   const clientId = await getClientId();
   const jobs = cfg.slots.filter((s) => s.photoId).map((s) => ({ slotId: s.id, photo: photos.find((p) => p.id === s.photoId) })).filter((j) => j.photo);
   let ok = 0;
+  let lastError: string | null = null;
   for (const { slotId, photo } of jobs) {
-    let uri = photo!.uri;
-    let ext = (/\.(\w+)(?:\?|$)/.exec(uri)?.[1] ?? "jpg").toLowerCase();
-    try {
-      // iPhone-фото могут прийти как HEIC: сервер сохранит файл, но превью
-      // в админке (браузер) его не отрисует — перекодируем в JPEG до загрузки.
-      if (Platform.OS !== "web" && (ext === "heic" || ext === "heif")) {
-        const jpeg = await manipulateAsync(uri, [], { compress: 0.85, format: SaveFormat.JPEG });
-        uri = jpeg.uri;
-        ext = "jpg";
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      try {
+        await uploadOne(orderId, clientId, slotId, photo!);
+        ok += 1;
+        break;
+      } catch (e) {
+        lastError = e instanceof Error ? e.message : String(e);
+        // Пишем в лог Metro, чтобы по телефону понять, почему фото не доехало.
+        console.warn(`[uploadOrderPhotos] попытка ${attempt} для ${photo!.id}:`, lastError);
+        // Ошибку проверки (формат, размер) повторять бессмысленно.
+        if (e instanceof ApiError && e.status >= 400 && e.status < 500) break;
+        if (attempt < 3) await new Promise((r) => setTimeout(r, attempt * 1500));
       }
-      const mime = MIME_BY_EXT[ext] ?? "image/jpeg";
-      if (Platform.OS === "web") {
-        const blob = await (await fetch(uri)).blob();
-        const type = blob.type || mime;
-        const form = new FormData();
-        form.append("slotId", slotId);
-        form.append("photo", new Blob([blob], { type }), `${photo!.id}.${type.split("/")[1] ?? "jpg"}`);
-        await request(`/orders/${encodeURIComponent(orderId)}/photos`, { method: "POST", headers: { "X-Client-Id": clientId }, body: form }, 60000);
-      } else {
-        // React Native: нативная загрузка файла по uri — иначе fetch + FormData
-        // на устройстве молча обрывается и фото в админку не доходят.
-        const url = `${API_URL}/api/orders/${encodeURIComponent(orderId)}/photos`;
-        if (!API_URL) throw new ApiError(0, "API не настроен");
-        const res = await FileSystem.uploadAsync(url, uri, {
-          uploadType: FileSystem.FileSystemUploadType.MULTIPART,
-          fieldName: "photo",
-          mimeType: mime,
-          parameters: { slotId },
-          httpMethod: "POST",
-          // FOREGROUND: загрузка завершится, пока открыт экран заказов.
-          sessionType: FileSystem.FileSystemSessionType.FOREGROUND,
-          headers: { "X-Client-Id": clientId },
-        });
-        if (res.status < 200 || res.status >= 300) {
-          throw new ApiError(res.status, res.body?.slice(0, 200) || `Сервер ответил ${res.status}`);
-        }
-      }
-      ok += 1;
-    } catch (e) {
-      // Ошибка одной фотографии не отменяет остальные; пишем её в лог Metro,
-      // чтобы по телефону понять, почему фото не доехало до сервера.
-      console.warn(`[uploadOrderPhotos] не удалось загрузить ${photo!.id} (${uri.slice(0, 60)}):`, e instanceof ApiError ? `${e.status} ${e.message}` : e);
     }
   }
-  return { ok, total: jobs.length };
+  return { ok, total: jobs.length, error: ok < jobs.length ? lastError : null };
 }
