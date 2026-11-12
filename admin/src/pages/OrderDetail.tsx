@@ -115,6 +115,12 @@ export function OrderPage({ id }: { id: string }) {
 
           <section className="card">
             <h2>Фото к печати <span className="muted">({order.photos.length} из {order.photoCount})</span></h2>
+            {order.clientId !== "demo" && order.photos.length < order.photoCount && Date.now() - order.createdAt > 2 * 60_000 ? (
+              <div className="quality-banner">
+                <AlertTriangle size={16} />
+                <span>Дошли не все фото. Причина видна в терминале сервера (строки с ⚠️). Обычно это обрыв связи — попросите клиента оформить заказ ещё раз.</span>
+              </div>
+            ) : null}
             {weak.length ? (
               <div className="quality-banner">
                 <AlertTriangle size={16} />
@@ -128,7 +134,7 @@ export function OrderPage({ id }: { id: string }) {
                   const note = qualityText(q);
                   return (
                     <a key={p.id} href={p.url} target="_blank" rel="noreferrer" download={p.originalName ?? undefined} className={`photo${note ? " warn" : ""}`}>
-                      <img src={p.url} alt={`Фото ${i + 1}`} loading="lazy" />
+                      <PhotoImg src={p.url} alt={`Фото ${i + 1}`} name={p.originalName} />
                       {note ? <span className="photo-warn" title={note}><AlertTriangle size={12} /> {note}</span> : null}
                       <span className="photo-meta">
                         <span title={p.slotId ? slotLabel(p.slotId) : undefined}>{i + 1}{p.slotId ? ` · ${slotLabel(p.slotId)}` : ""}</span>
@@ -227,4 +233,21 @@ function productRows(cfg: Record<string, unknown>): [string, string][] {
     case "postcard": add("Шаблон", cfg.postcardTemplateId); add("Подпись", cfg.postcardCaption); add("Копий", cfg.copies); break;
   }
   return rows;
+}
+
+// Фото, которое браузер не умеет показать (например, HEIC со старой версии приложения), —
+// заглушка вместо «битой» картинки; файл всё равно можно скачать.
+function PhotoImg({ src, alt, name }: { src: string; alt: string; name: string | null }) {
+  const [failed, setFailed] = useState(false);
+  if (failed) {
+    const ext = (/\.(\w+)$/.exec(name ?? src)?.[1] ?? "").toUpperCase();
+    return <span className="photo-fallback">Браузер не показывает {ext || "этот формат"}<br />Нажмите, чтобы скачать</span>;
+  }
+  return (
+    <img
+      src={src} alt={alt} loading="lazy" onError={() => setFailed(true)}
+      // Ошибка могла случиться до того, как React подписался на событие.
+      ref={(img) => { if (img?.complete && img.naturalWidth === 0 && img.currentSrc) setFailed(true); }}
+    />
+  );
 }

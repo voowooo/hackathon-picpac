@@ -950,8 +950,11 @@ export function usePicPacController() {
         setOrders((prev) => [{ ...remote, previewUri: localPreview }, ...prev.filter((o) => o.id !== remote.id)]);
         const orderCfg = cfg;
         const orderPhotos = photos;
-        void uploadOrderPhotos(remote.id, orderCfg, orderPhotos).then(({ ok, total }) => {
-          if (ok < total) showToast(`Загружено фото: ${ok} из ${total}. Менеджер свяжется с вами`, "cloud-offline-outline");
+        void uploadOrderPhotos(remote.id, orderCfg, orderPhotos).then(({ ok, total, error }) => {
+          if (ok < total) {
+            showToast(`Загружено фото: ${ok} из ${total}${error ? ` — ${error}` : ""}`, "cloud-offline-outline");
+            console.warn(`[PicPac] Фото заказа ${remote.id}: загружено ${ok} из ${total}`, error);
+          }
         });
         resetAfterOrder(remote.id);
         showToast(`Заказ ${remote.id} оформлен! Следите за статусом здесь`, "sparkles");

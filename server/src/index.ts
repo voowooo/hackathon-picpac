@@ -11,9 +11,12 @@ if (!process.env.ADMIN_PASSWORD) console.warn(`ADMIN_PASSWORD не задан �
 const app = await buildApp(db, config, { logger: process.env.LOG === "1" });
 await app.listen({ port: config.port, host: config.host });
 
-const lan = Object.values(networkInterfaces()).flat().find((i) => i && i.family === "IPv4" && !i.internal)?.address;
+// Все внешние IPv4: у ноутбука их бывает несколько (Wi‑Fi, VPN, WSL). Телефону нужен адрес той сети, где он сам.
+const lan = Object.entries(networkInterfaces()).flatMap(([name, list]) =>
+  (list ?? []).filter((i) => i.family === "IPv4" && !i.internal).map((i) => `${i.address} (${name})`));
 console.log(`PicPac API:   http://localhost:${config.port}/api`);
-if (lan) console.log(`В локальной сети: http://${lan}:${config.port}/api`);
+for (const addr of lan) console.log(`В сети:       http://${addr.replace(" (", `:${config.port}/api  (`)}`);
+if (lan.length) console.log("Проверка с телефона: откройте http://<адрес>:" + config.port + "/api/health в браузере телефона");
 console.log(`Админка:      http://localhost:${config.port}/admin  (после npm run build в admin/; в разработке — http://localhost:5173)`);
 
 const shutdown = async () => {
