@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { api, CATEGORIES, ORDER_STATUSES, type Order } from "../api";
 import { ErrorBox, PageHeader, StatusBadge, useLoad } from "../components/common";
 import { dateTime, int, money } from "../format";
+import { freshOrders, useLiveReload } from "../live";
 
 const PAGE = 25;
 
@@ -31,6 +32,7 @@ export function OrdersPage({ params }: { params: URLSearchParams }) {
   const qs = new URLSearchParams({ status, category, search, limit: String(PAGE), offset: String(page * PAGE) });
   const { data, error, loading, reload } = useLoad(() => api<{ total: number; items: Order[] }>(`/admin/orders?${qs}`), [qs.toString()]);
   const pages = data ? Math.max(1, Math.ceil(data.total / PAGE)) : 1;
+  useLiveReload(() => true, reload);
 
   return (
     <>
@@ -67,11 +69,11 @@ export function OrdersPage({ params }: { params: URLSearchParams }) {
           </thead>
           <tbody>
             {data?.items.map((o) => (
-              <tr key={o.id} className="clickable" onClick={() => { window.location.hash = `/orders/${o.id}`; }}>
+              <tr key={o.id} className={`clickable${freshOrders.has(o.id) ? " fresh" : ""}`} onClick={() => { window.location.hash = `/orders/${o.id}`; }}>
                 <td>
                   <div className="order-cell">
                     {o.previewUrl ? <img src={o.previewUrl} alt="" className="thumb" loading="lazy" /> : <span className="thumb" />}
-                    <div><strong>{o.id}</strong><div className="muted small">{dateTime(o.createdAt)}</div></div>
+                    <div><strong>{o.id}</strong>{freshOrders.has(o.id) ? <span className="new-tag">новый</span> : null}<div className="muted small">{dateTime(o.createdAt)}</div></div>
                   </div>
                 </td>
                 <td>{o.customer.name}<div className="muted small">{o.customer.phone}</div></td>

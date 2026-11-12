@@ -6,7 +6,8 @@ import { randomUUID } from "node:crypto";
 import { createWriteStream, existsSync, mkdirSync, unlinkSync } from "node:fs";
 import path from "node:path";
 import { pipeline } from "node:stream/promises";
-import { checkPassword, issueToken, requireAdmin } from "./auth.ts";
+import { EventEmitter } from "node:events";
+import { checkPassword, issueToken, requireAdmin, verifyToken } from "./auth.ts";
 import { config as defaultConfig } from "./config.ts";
 import type { DB } from "./db.ts";
 import { CATALOG_KINDS, SETTINGS_SCHEMA, listCatalog, loadCatalog, sanitizeCatalogData, tx } from "./db.ts";
@@ -16,7 +17,9 @@ import {
   stats, toAdminOrder, toClientOrder, updateOrder,
 } from "./orders.ts";
 import type { OrderRow, PromoRow } from "./orders.ts";
+import { buildPrintPack } from "./printpack.ts";
 import { resetDb } from "./seed.ts";
+import { zipStream } from "./zip.ts";
 
 type AppConfig = typeof defaultConfig;
 
@@ -28,6 +31,11 @@ const MAX_PHOTOS_PER_ORDER = 300;
 export async function buildApp(db: DB, cfg: AppConfig = defaultConfig, opts: { logger?: boolean } = {}) {
   const app = Fastify({ logger: opts.logger ?? false, bodyLimit: 5 * 1024 * 1024 });
   mkdirSync(cfg.uploadsDir, { recursive: true });
+
+  // Шина событий для живых обновлений админки (SSE).
+  const events = new EventEmitter();
+  events.setMaxListeners(100);
+  const emit = (type: string, payload: Record<string, unknown> = {}) => events.emit("event", { type, at: Date.now(), ...payload });
 
   // Приложение (Expo web, Expo Go) и админка ходят с разных origin — открываем CORS.
   await app.register(cors, { origin: true, methods: ["GET", "POST", "PUT", "PATCH", "DELETE"], allowedHeaders: ["Content-Type", "Authorization", "X-Client-Id"] });
@@ -58,6 +66,7 @@ export async function buildApp(db: DB, cfg: AppConfig = defaultConfig, opts: { l
 
   app.post("/api/orders", async (req, reply) => {
     const order = createOrder(db, (req.body ?? {}) as Parameters<typeof createOrder>[1]);
+    emit("order.created", { order: toAdminOrder(order) });
     return reply.code(201).send(toClientOrder(order));
   });
 
@@ -107,6 +116,7 @@ export async function buildApp(db: DB, cfg: AppConfig = defaultConfig, opts: { l
     const result = db.prepare("INSERT INTO order_photos (order_id, slot_id, filename, original_name, mime, size, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
       .run(id, slotId, filename, file.filename?.slice(0, 200) ?? null, file.mimetype, size, now);
     if (!order.preview_url) db.prepare("UPDATE orders SET preview_url = ? WHERE id = ?").run(`/api/photos/${filename}`, id);
+    emit("order.photo", { orderId: id, uploaded: count + 1, expected: order.photo_count });
     return reply.code(201).send({ id: Number(result.lastInsertRowid), url: `/api/photos/${filename}` });
   });
 
@@ -118,6 +128,38 @@ export async function buildApp(db: DB, cfg: AppConfig = defaultConfig, opts: { l
     const { password } = (req.body ?? {}) as { password?: unknown };
     if (!checkPassword(password, cfg.adminPassword)) return reply.code(401).send({ error: "Неверный пароль" });
     return issueToken(cfg.adminSecret);
+  });
+
+  // Поток событий для админки. EventSource не умеет слать заголовки, поэтому токен — в ?token=.
+  app.get("/api/admin/events", (req, reply) => {
+    const token = (req.query as { token?: string }).token;
+    if (!verifyToken(token, cfg.adminSecret)) return reply.code(401).send({ error: "Требуется вход в админку" });
+    reply.hijack();
+    const origin = req.headers.origin;
+    reply.raw.writeHead(200, {
+      "Content-Type": "text/event-stream; charset=utf-8",
+      "Cache-Control": "no-cache, no-transform",
+      Connection: "keep-alive",
+      "X-Accel-Buffering": "no",
+      ...(origin ? { "Access-Control-Allow-Origin": origin, Vary: "Origin" } : {}),
+    });
+    const send = (e: unknown) => reply.raw.write(`data: ${JSON.stringify(e)}\n\n`);
+    send({ type: "hello", at: Date.now() });
+    events.on("event", send);
+    const ping = setInterval(() => reply.raw.write(": ping\n\n"), 25000);
+    const close = () => {
+      clearInterval(ping);
+      events.off("event", send);
+      streams.delete(close);
+      if (!reply.raw.writableEnded) reply.raw.end();
+    };
+    streams.add(close);
+    req.raw.on("close", close);
+  });
+  // При остановке сервера закрываем открытые потоки, иначе close() будет ждать их вечно.
+  const streams = new Set<() => void>();
+  app.addHook("preClose", async () => {
+    for (const close of [...streams]) close();
   });
 
   await app.register(async (admin) => {
@@ -140,7 +182,26 @@ export async function buildApp(db: DB, cfg: AppConfig = defaultConfig, opts: { l
     admin.patch("/api/admin/orders/:id", async (req) => {
       const { id } = req.params as { id: string };
       updateOrder(db, id, (req.body ?? {}) as Parameters<typeof updateOrder>[2]);
-      return toAdminOrder(getOrder(db, id)!, orderPhotos(db, id), orderEvents(db, id));
+      const order = getOrder(db, id)!;
+      emit("order.updated", { orderId: id, statusIndex: order.status_index, cancelled: !!order.cancelled });
+      return toAdminOrder(order, orderPhotos(db, id), orderEvents(db, id));
+    });
+
+    // Пакет к печати: ZIP с фото в порядке макета, паспортом заказа и составом.
+    admin.get("/api/admin/orders/:id/print-pack", async (req, reply) => {
+      const { id } = req.params as { id: string };
+      const order = getOrder(db, id);
+      if (!order) throw new HttpError(404, "Заказ не найден");
+      const photos = orderPhotos(db, id).filter((p) => existsSync(path.join(cfg.uploadsDir, p.filename)));
+      const pack = buildPrintPack(db, order, photos, cfg.uploadsDir);
+      const ascii = `${order.id}_print.zip`;
+      reply
+        .header("Content-Type", "application/zip")
+        .header("Content-Disposition", `attachment; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(pack.filename)}`)
+        .header("X-Photo-Count", String(pack.photoCount))
+        .header("X-Missing-Photos", String(pack.missing.length))
+        .header("Access-Control-Expose-Headers", "Content-Disposition, X-Photo-Count, X-Missing-Photos");
+      return reply.send(zipStream(pack.entries));
     });
 
     // ——— Каталог ———
@@ -264,6 +325,7 @@ export async function buildApp(db: DB, cfg: AppConfig = defaultConfig, opts: { l
     // Сброс к демо-данным (удобно перед показом жюри).
     admin.post("/api/admin/reset-demo", async () => {
       resetDb(db);
+      emit("reset");
       return { ok: true };
     });
   });

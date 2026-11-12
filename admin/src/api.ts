@@ -86,3 +86,29 @@ export type Promo = {
 
 export const ORDER_STATUSES = ["Принят", "В печати", "Готов", "В пути", "Доставлен"];
 export const CATEGORIES: Record<string, string> = { print: "Фотопечать", photobook: "Фотокнига", poster: "Постер", postcard: "Открытка" };
+
+// Скачивание файла с авторизацией: fetch → blob → временная ссылка.
+export async function downloadFile(path: string) {
+  const token = auth.token;
+  const res = await fetch(`/api${path}`, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+  if (res.status === 401) {
+    auth.clear();
+    onUnauthorized();
+  }
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new ApiError(res.status, (data as { error?: string }).error ?? `Ошибка ${res.status}`);
+  }
+  const disposition = res.headers.get("Content-Disposition") ?? "";
+  const utf = /filename\*=UTF-8''([^;]+)/i.exec(disposition)?.[1];
+  const plain = /filename="([^"]+)"/i.exec(disposition)?.[1];
+  const filename = utf ? decodeURIComponent(utf) : plain ?? "download";
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = Object.assign(document.createElement("a"), { href: url, download: filename });
+  document.body.append(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10_000);
+  return { filename, size: blob.size, headers: res.headers };
+}

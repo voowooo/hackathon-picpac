@@ -193,3 +193,24 @@ summary { cursor: pointer; }
   .grid-2, .grid-detail { grid-template-columns: 1fr; }
   .grid-2 > .card { margin-bottom: 16px; }
 }
+
+/* ——— Живые обновления ——— */
+.nav-badge { margin-left: auto; background: var(--accent); color: #fff; font-size: 11px; font-weight: 700; min-width: 20px; height: 20px; padding: 0 6px; border-radius: 999px; display: inline-grid; place-items: center; }
+.sidebar-foot { margin-top: auto; display: flex; flex-direction: column; gap: 2px; }
+.sidebar-foot .logout { margin-top: 0; }
+.live-status { display: flex; align-items: center; gap: 8px; font-size: 12px; padding: 6px 12px 10px; opacity: 0.85; }
+.live-dot { width: 8px; height: 8px; border-radius: 50%; background: #c9b9a6; flex-shrink: 0; }
+.live-status.online .live-dot { background: #7fd39a; box-shadow: 0 0 0 0 rgba(127, 211, 154, 0.6); animation: live-pulse 2.4s infinite; }
+.live-status.offline .live-dot { background: #f0a07a; }
+@keyframes live-pulse { 0% { box-shadow: 0 0 0 0 rgba(127, 211, 154, 0.55); } 70% { box-shadow: 0 0 0 7px rgba(127, 211, 154, 0); } 100% { box-shadow: 0 0 0 0 rgba(127, 211, 154, 0); } }
+.notices { position: fixed; top: 16px; right: 16px; display: flex; flex-direction: column; gap: 10px; z-index: 20; width: 340px; max-width: calc(100vw - 32px); }
+.notice { display: flex; gap: 8px; align-items: flex-start; background: #fff; border-left: 4px solid var(--accent); border-radius: 12px; padding: 12px 10px 12px 14px; box-shadow: 0 10px 30px rgba(54, 76, 73, 0.18); animation: notice-in 0.28s ease-out; }
+.notice a { flex: 1; text-decoration: none; display: flex; flex-direction: column; gap: 2px; }
+.notice a span { color: var(--text-2); font-size: 13px; }
+@keyframes notice-in { from { transform: translateX(24px); opacity: 0; } to { transform: none; opacity: 1; } }
+.table tr.fresh td { animation: fresh-row 3s ease-out; }
+@keyframes fresh-row { from { background: #fde9d9; } to { background: transparent; } }
+.new-tag { margin-left: 6px; background: var(--accent-soft); color: var(--accent-ink); font-size: 11px; font-weight: 700; padding: 1px 6px; border-radius: 6px; }
+@media (prefers-reduced-motion: reduce) { .live-dot, .notice, .table tr.fresh td { animation: none !important; } }
+@media (max-width: 1000px) { .sidebar-foot { margin: 0 0 0 auto; flex-direction: row; align-items: center; } }
+.photo-meta span:first-child { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }

@@ -3,9 +3,11 @@ import { api, type Stats } from "../api";
 import { BarList, RevenueChart } from "../components/charts";
 import { ErrorBox, PageHeader, StatusBadge, useLoad } from "../components/common";
 import { dateTime, int, money } from "../format";
+import { useLiveReload } from "../live";
 
 export function DashboardPage() {
   const { data, error, loading, reload } = useLoad(() => api<Stats>("/admin/stats"), []);
+  useLiveReload((e) => e.type !== "order.photo", reload);
 
   return (
     <>

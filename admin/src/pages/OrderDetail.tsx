@@ -1,8 +1,9 @@
-import { ArrowLeft, Ban, Check, Download, RotateCcw } from "lucide-react";
+import { ArrowLeft, Ban, Check, Download, FileArchive, RotateCcw } from "lucide-react";
 import { useState } from "react";
-import { api, ORDER_STATUSES, type OrderDetail } from "../api";
+import { api, downloadFile, ORDER_STATUSES, type OrderDetail } from "../api";
 import { ErrorBox, PageHeader, StatusBadge, Toast, useLoad } from "../components/common";
-import { bytes, dateTime, money } from "../format";
+import { bytes, dateTime, money, slotLabel } from "../format";
+import { useLiveReload } from "../live";
 
 const EVENT_LABEL: Record<string, string> = { created: "Заказ создан", status: "Статус", cancelled: "Заказ отменён", restored: "Заказ восстановлен", comment: "Комментарий" };
 
@@ -12,6 +13,23 @@ export function OrderPage({ id }: { id: string }) {
   const [note, setNote] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  const [packing, setPacking] = useState(false);
+  // Фото догружаются в фоне, а статус могли сменить в другой вкладке — обновляемся сами.
+  useLiveReload((e) => (e.type === "order.photo" || e.type === "order.updated") && e.orderId === id, reload);
+
+  const downloadPack = async () => {
+    setPacking(true);
+    try {
+      const { headers, size } = await downloadFile(`/admin/orders/${encodeURIComponent(id)}/print-pack`);
+      const missing = Number(headers.get("X-Missing-Photos") ?? 0);
+      const count = Number(headers.get("X-Photo-Count") ?? 0);
+      setToast(missing ? `Скачано ${count} фото (${bytes(size)}). Не хватает ${missing} — см. паспорт` : `Пакет скачан: ${count} фото, ${bytes(size)}`);
+    } catch (e) {
+      setToast((e as Error).message);
+    } finally {
+      setPacking(false);
+    }
+  };
 
   const patch = async (body: Record<string, unknown>, message: string) => {
     setBusy(true);
@@ -39,6 +57,11 @@ export function OrderPage({ id }: { id: string }) {
       <PageHeader
         title={`Заказ ${order.id}`}
         subtitle={<>{dateTime(order.createdAt)} · {order.title} · <StatusBadge statusIndex={order.statusIndex} label={order.status} cancelled={order.cancelled} /></>}
+        actions={
+          <button className="btn primary" onClick={downloadPack} disabled={packing} title="ZIP: фото в порядке макета, паспорт заказа и состав в CSV">
+            <FileArchive size={16} /> {packing ? "Собираем…" : "Скачать к печати"}
+          </button>
+        }
       />
 
       <div className="grid-detail">
@@ -87,7 +110,7 @@ export function OrderPage({ id }: { id: string }) {
                   <a key={p.id} href={p.url} target="_blank" rel="noreferrer" download={p.originalName ?? undefined} className="photo">
                     <img src={p.url} alt={`Фото ${i + 1}`} loading="lazy" />
                     <span className="photo-meta">
-                      <span>{i + 1}{p.slotId ? ` · ${p.slotId.replace(/^\w+-slot-/, "ячейка ")}` : ""}</span>
+                      <span title={p.slotId ? slotLabel(p.slotId) : undefined}>{i + 1}{p.slotId ? ` · ${slotLabel(p.slotId)}` : ""}</span>
                       <span><Download size={12} /> {bytes(p.size)}</span>
                     </span>
                   </a>
