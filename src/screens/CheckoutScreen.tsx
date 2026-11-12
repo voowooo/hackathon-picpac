@@ -14,7 +14,7 @@ import { colors, spacing } from '../styles/theme';
 import { money } from '../utils/format';
 
 export function CheckoutScreen({ controller }: { controller: PicPacController }) {
-  const { aiCost, aiCount, base, bookPage, cfg, checkoutPreviewOpen, delivery, deliveryId, deliveryPrice, discount, filled, insets, paymentId, photos, placeOrder, postcardInteracting, promo, promoValid, recipient, setBookPage, setCheckoutPreviewOpen, setDeliveryId, setPaymentId, setPostcardInteracting, setPromo, setRecipient, setScreen, totalPrice } = controller;
+  const { aiCost, aiCount, base, bookPage, cfg, checkoutPreviewOpen, delivery, deliveryId, deliveryPrice, discount, filled, insets, paymentId, photos, placeOrder, placingOrder, postcardInteracting, promo, promoError, promoPercent, promoValid, recipient, setBookPage, setCheckoutPreviewOpen, setDeliveryId, setPaymentId, setPostcardInteracting, setPromo, setRecipient, setScreen, totalPrice } = controller;
   return (
     <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === "ios" ? "padding" : undefined}>
       <ScreenHeader title="Доставка и оплата" onBack={() => setScreen("builder")} />
@@ -86,12 +86,13 @@ export function CheckoutScreen({ controller }: { controller: PicPacController })
           style={styles.input} value={promo} onChangeText={setPromo} placeholder="Введите промокод"
           placeholderTextColor={colors.textSecondary} autoCapitalize="characters"
         />
+        {promoError ? <Text style={[styles.checkoutMeta, { color: colors.danger, marginTop: -spacing.xs, marginBottom: spacing.sm }]}>{promoError}</Text> : null}
 
         <View style={styles.card}>
           <SummaryRow label="Товар" value={money(base)} />
           {aiCost > 0 ? <SummaryRow ai label={`AI-обработка · ${aiCount} ф. × ${filled} фото`} value={money(aiCost)} /> : null}
           <SummaryRow label={`Доставка · ${delivery?.label ?? ""}`} value={money(deliveryPrice)} />
-          {promoValid ? <SummaryRow label="Промокод −10%" value={`−${money(discount)}`} accent /> : null}
+          {promoValid ? <SummaryRow label={`Промокод −${promoPercent}%`} value={`−${money(discount)}`} accent /> : null}
           <View style={styles.summaryDivider} />
           <SummaryRow label="Итого" value={money(totalPrice)} strong />
         </View>
@@ -102,7 +103,7 @@ export function CheckoutScreen({ controller }: { controller: PicPacController })
           <Text style={styles.footerPriceValue}>{money(totalPrice)}</Text>
         </View>
         <View style={{ flex: 1.2 }}>
-          <PrimaryButton label="Оформить заказ" onPress={placeOrder} />
+          <PrimaryButton label={placingOrder ? "Оформляем…" : "Оформить заказ"} onPress={() => void placeOrder()} disabled={placingOrder} />
         </View>
       </View>
     </KeyboardAvoidingView>

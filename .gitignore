@@ -1,0 +1,12 @@
+node_modules/
+.expo/
+dist/
+web-build/
+.env
+.env.local
+.DS_Store
+
+# backend / admin
+server/data/
+server/.env
+admin/dist/

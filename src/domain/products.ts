@@ -1,4 +1,4 @@
-import { BOOK_LINES, BOOK_TEMPLATES, COVER_COLORS, DEFAULT_PRINT_FINISH, MAX_SPREADS, MIN_SPREADS, POSTCARD_PRICE, POSTCARD_TEMPLATES, POSTER_SIZES, PRINT_FORMATS, SPREAD_LAYOUTS, SPREAD_PRICE } from '../config/catalog';
+import { BOOK_LINES, BOOK_TEMPLATES, COVER_COLORS, DEFAULT_PRINT_FINISH, MAX_SPREADS, MIN_SPREADS, POSTCARD_TEMPLATES, PRICES, POSTER_SIZES, PRINT_FORMATS, SPREAD_LAYOUTS } from '../config/catalog';
 import { Photo, PhotoSlot, PrintFinish, PrintFormat, ProductCategory, ProductConfig, SpreadLayout } from '../types/index';
 import { clamp, normalizeHexColor } from '../utils/format';
 import { photoById } from './photos';
@@ -150,9 +150,9 @@ export function baseEstimate(cfg: ProductConfig): number {
   const filled = filledCount(cfg);
   switch (cfg.category) {
     case "print": return cfg.slots.reduce((sum, s) => (s.photoId ? sum + slotPrintFormat(cfg, s).pricePer : sum), 0) * cfg.copies;
-    case "photobook": return (BOOK_LINES.find((x) => x.id === cfg.bookLineId)?.basePrice ?? 49.9) + cfg.spreads * SPREAD_PRICE;
+    case "photobook": return (BOOK_LINES.find((x) => x.id === cfg.bookLineId)?.basePrice ?? 49.9) + cfg.spreads * PRICES.spread;
     case "poster": return POSTER_SIZES.find((x) => x.id === cfg.posterSizeId)?.price ?? 24.9;
-    case "postcard": return POSTCARD_PRICE * cfg.copies;
+    case "postcard": return PRICES.postcard * cfg.copies;
     default: return 0;
   }
 }

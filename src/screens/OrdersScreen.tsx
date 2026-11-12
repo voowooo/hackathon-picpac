@@ -34,9 +34,9 @@ export function OrdersScreen({ controller }: { controller: PicPacController }) {
           <>
             {(() => {
               // Активные: заказ ещё в пути (не достиг «Доставлен»).
-              const active = orders.filter((o) => o.statusIndex < ORDER_STATUSES.length - 1);
-              // История: завершённые заказы (дошли до «Доставлен»).
-              const done = orders.filter((o) => o.statusIndex >= ORDER_STATUSES.length - 1);
+              const active = orders.filter((o) => !o.cancelled && o.statusIndex < ORDER_STATUSES.length - 1);
+              // История: завершённые (дошли до «Доставлен») и отменённые заказы.
+              const done = orders.filter((o) => o.cancelled || o.statusIndex >= ORDER_STATUSES.length - 1);
               return (
                 <>
                   {active[0] ? (
