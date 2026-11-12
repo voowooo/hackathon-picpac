@@ -5,14 +5,14 @@ import { ScreenHeader } from '../components/navigation/index';
 import { SectionTitle } from '../components/ui/index';
 import { ORDER_STATUSES } from '../config/catalog';
 import { DraftCard } from '../features/drafts/DraftCard';
-import { OrderTracker } from '../features/orders/OrderCards';
+import { ActiveOrdersRow } from '../features/orders/ActiveOrdersRow';
 import type { PicPacController } from '../state/usePicPacController';
 import { styles } from '../styles/app.styles';
 import { colors } from '../styles/theme';
 import { IconName } from '../types/index';
 
 export function ProfileScreen({ controller }: { controller: PicPacController }) {
-  const { deleteDraft, insets, openDraft, orders, setScreen, setSelectedOrderId, visibleDrafts } = controller;
+  const { activeOrders, deleteDraft, insets, openDraft, orders, setScreen, setSelectedOrderId, visibleDrafts } = controller;
 
   const inProgress = orders.filter((o) => o.statusIndex < ORDER_STATUSES.length - 1).length;
   const stats: { label: string; value: number; icon: IconName }[] = [
@@ -42,16 +42,9 @@ export function ProfileScreen({ controller }: { controller: PicPacController }) 
           </View>
         </MotionView>
 
-        {orders[0] ? (
+        {activeOrders.length > 0 ? (
           <MotionView kind="section" delay={100}>
-            <SectionTitle title="Последний заказ" />
-            <OrderTracker order={orders[0]} onPress={() => { setSelectedOrderId(orders[0].id); setScreen("orders"); }} />
-            {/* {orders[0].statusIndex < ORDER_STATUSES.length - 1 ? (
-                <Pressable onPress={advanceOrder} style={styles.demoLink}>
-                  <Ionicons name="play-forward-outline" size={16} color={colors.accent} />
-                  <Text style={styles.linkText}>Показать следующий этап (демо)</Text>
-                </Pressable>
-              ) : null} */}
+            <ActiveOrdersRow orders={activeOrders} onOpen={(id) => { setSelectedOrderId(id); setScreen("orders"); }} />
           </MotionView>
         ) : null}
 
