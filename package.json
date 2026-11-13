@@ -43,7 +43,12 @@
     "web": "expo start --web",
     "lint": "expo lint",
     "test:smart-tools": "node scripts/test-smart-tools.cjs",
-    "test:ar": "node scripts/test-ar.cjs"
+    "test:ar": "node scripts/test-ar.cjs",
+    "api": "npm --prefix server run dev",
+    "api:test": "npm --prefix server test",
+    "admin": "npm --prefix admin run dev",
+    "admin:build": "npm --prefix admin run build",
+    "setup:backend": "npm --prefix server install && npm --prefix admin install"
   },
   "private": true
 }
