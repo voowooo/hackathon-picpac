@@ -89,8 +89,7 @@ export function OrderTracker({ order, onPress }: { order: MockOrder; onPress?: (
   const idx = clamp(order.statusIndex, 0, ORDER_STATUSES.length - 1);
   const delivered = idx === ORDER_STATUSES.length - 1;
   const cancelled = !!order.cancelled;
-  const title = cancelled ? "Отменён" : ORDER_STATUSES[idx];
-  return (
+  const title = cancelled ? "Отменён" : ORDER_STATUSES[idx];  return (
     <ScalePressable
       onPress={onPress} disabled={!onPress} scaleTo={0.98} accessibilityRole={onPress ? "button" : undefined}
       accessibilityLabel={`Статус заказа: ${title}`} wrapStyle={styles.trackerWrap}
@@ -109,9 +108,12 @@ export function OrderTracker({ order, onPress }: { order: MockOrder; onPress?: (
           </View>
           {onPress ? <Ionicons name="chevron-forward" size={18} color="rgba(255,255,255,0.7)" /> : null}
         </View>
-        <View style={styles.trackerTrack}>
-          <Track activeIndex={idx} />
-        </View>
+        {/* У отменённого заказа этапов (принят → в печати → …) нет — трекинг не показываем */}
+        {!cancelled && (
+          <View style={styles.trackerTrack}>
+            <Track activeIndex={idx} />
+          </View>
+        )}
         <View style={styles.trackerFooter}>
           <View style={styles.trackerEta}>
             <Ionicons name={delivered ? "checkmark-circle-outline" : "time-outline"} size={16} color="rgba(255,255,255,0.85)" />

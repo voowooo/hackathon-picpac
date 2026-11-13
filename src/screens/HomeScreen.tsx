@@ -33,7 +33,7 @@ export function HomeScreen({ controller }: { controller: PicPacController }) {
       <PrimaryButton label="Загрузить фото" icon="images-outline" onPress={() => startFlow(null)} />
       {photos.length > 0 && (
         <Pressable style={styles.homeContinue} onPress={() => setScreen("builder")}>
-          <Text style={styles.linkText}>Продолжить мой заказ</Text>
+          <Text style={styles.linkText}>Продолжить последний заказ</Text>
         </Pressable>
       )}
 

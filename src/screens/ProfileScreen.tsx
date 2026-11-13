@@ -2,7 +2,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { ScrollView, Text, View } from "react-native";
 import { MotionView } from '../components/animation/MotionView';
 import { ScreenHeader } from '../components/navigation/index';
-import { SectionTitle } from '../components/ui/index';
+import { SectionTitle, PrimaryButton } from '../components/ui/index';
 import { ORDER_STATUSES } from '../config/catalog';
 import { DraftCard } from '../features/drafts/DraftCard';
 import { ActiveOrdersRow } from '../features/orders/ActiveOrdersRow';
@@ -12,7 +12,7 @@ import { colors } from '../styles/theme';
 import { IconName } from '../types/index';
 
 export function ProfileScreen({ controller }: { controller: PicPacController }) {
-  const { activeOrders, deleteDraft, insets, openDraft, orders, setScreen, setSelectedOrderId, visibleDrafts } = controller;
+  const { activeOrders, deleteDraft, insets, openDraft, orders, setScreen, setSelectedOrderId, startFlow, visibleDrafts } = controller;
 
   const inProgress = orders.filter((o) => o.statusIndex < ORDER_STATUSES.length - 1).length;
   const stats: { label: string; value: number; icon: IconName }[] = [
@@ -53,6 +53,9 @@ export function ProfileScreen({ controller }: { controller: PicPacController }) 
           {visibleDrafts.map((d) => (
             <DraftCard key={d.id} wide draft={d} onOpen={() => openDraft(d)} onDelete={() => deleteDraft(d)} />
           ))}
+          {visibleDrafts.length === 0 ? (
+            <PrimaryButton label="Создать" icon="add-circle-outline" onPress={() => startFlow(null)} />
+          ) : null}
         </MotionView>
 
         <SectionTitle title="О приложении" />

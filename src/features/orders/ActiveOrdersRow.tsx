@@ -18,8 +18,8 @@ export function ActiveOrdersRow({ orders, onOpen }: { orders: MockOrder[]; onOpe
   return (
     <>
       <SectionTitle
-        title="Активные заказы"
-        subtitle={orders.length > 1 ? `${orders.length} ${plural(orders.length, "заказ", "заказа", "заказов")} в работе — листайте` : undefined}
+        title="В работе"
+        subtitle={orders.length > 1 ? `${orders.length} ${plural(orders.length, "заказ", "заказа", "заказов")} — листайте` : undefined}
       />
       <ScrollView
         horizontal
