@@ -14,14 +14,16 @@ export function ARControls({ native, placed, locked, widthCm, heightCm, printWid
   return <>
     <View style={[s.top, { top: insets.top + 10 }]}>
       <Pressable accessibilityRole="button" accessibilityLabel="Закрыть AR-примерку" onPress={onClose} style={s.icon}><Ionicons name="close" size={23} color="#fff" /></Pressable>
-      <Text style={s.badge}>{native ? 'AR · привязка к стене' : gyro && locked ? 'Гироскоп · стабилизация' : 'Примерка камерой'}</Text>
+      {/* <Text style={s.badge}>{native ? 'AR · привязка к стене' : gyro && locked ? 'Гироскоп · стабилизация' : 'Примерка камерой'}</Text> */}
     </View>
     <View style={[s.bottom, { bottom: insets.bottom + 12 }]}>
-      <Text accessibilityLiveRegion="polite" style={s.hint}>{notice || (native && !placed ? 'Медленно наведите камеру на стену и коснитесь места для постера' : locked ? (native ? 'Постер закреплён на стене' : 'Постер удерживает направление при повороте телефона') : 'Перетащите постер · размер меняется кнопками −/+')}</Text>
-      {!native && <Text style={s.sub}>{gyro && locked ? 'Повороты компенсируются. Перенос телефона вдоль стены гироскоп не отслеживает.' : 'Нажмите «Закрепить», чтобы включить удержание гироскопом.'}</Text>}
+      {/* <Text accessibilityLiveRegion="polite" style={s.hint}>{notice || (native && !placed ? 'Медленно наведите камеру на стену и коснитесь места для постера' : locked ? (native ? 'Постер закреплён на стене' : 'Постер удерживает направление при повороте телефона') : 'Перетащите постер · размер меняется кнопками −/+')}</Text> */}
+      {/* {!native && <Text style={s.sub}>{gyro && locked ? 'Повороты компенсируются. Перенос телефона вдоль стены гироскоп не отслеживает.' : 'Нажмите «Закрепить», чтобы включить удержание гироскопом.'}</Text>} */}
       <View style={s.row}>
         <SizeButton direction={-1} disabled={!!busy || !canDecrease} onStep={onSizeStep}/>
-        <View style={s.size}><Text style={s.sizeText}>{displayCentimeters(widthCm)} × {displayCentimeters(heightCm)} см</Text><Text style={s.sub}>Размер в примерке · шаг 1 см</Text><Text style={s.sub}>Печать: {printWidthCm} × {printHeightCm} см</Text></View>
+        <View style={s.size}><Text style={s.sizeText}>{displayCentimeters(widthCm)} × {displayCentimeters(heightCm)} см</Text>
+        {/* <Text style={s.sub}>Размер в примерке · шаг 1 см</Text> */}
+        <Text style={s.sub}>Печать: {printWidthCm} × {printHeightCm} см</Text></View>
         <SizeButton direction={1} disabled={!!busy || !canIncrease} onStep={onSizeStep}/>
       </View>
       <View style={s.row}>
