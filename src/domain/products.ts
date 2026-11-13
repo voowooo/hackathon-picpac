@@ -1,4 +1,4 @@
-import { BOOK_LINES, BOOK_TEMPLATES, COVER_COLORS, DEFAULT_PRINT_FINISH, MAX_SPREADS, MIN_SPREADS, POSTCARD_PRICE, POSTCARD_TEMPLATES, POSTER_SIZES, PRINT_FORMATS, SPREAD_LAYOUTS, SPREAD_PRICE } from '../config/catalog';
+import { BOOK_LINES, BOOK_TEMPLATES, COVER_COLORS, DEFAULT_PRINT_FINISH, MAX_SPREADS, MIN_SPREADS, POSTCARD_TEMPLATES, POSTER_SIZES, PRICES, PRINT_FORMATS, SPREAD_LAYOUTS } from '../config/catalog';
 import { Photo, PhotoSlot, PrintFinish, PrintFormat, ProductCategory, ProductConfig, SpreadLayout } from '../types/index';
 import { clamp, normalizeHexColor } from '../utils/format';
 import { photoById } from './photos';
@@ -150,9 +150,9 @@ export function baseEstimate(cfg: ProductConfig): number {
   const filled = filledCount(cfg);
   switch (cfg.category) {
     case "print": return cfg.slots.reduce((sum, s) => (s.photoId ? sum + slotPrintFormat(cfg, s).pricePer : sum), 0) * cfg.copies;
-    case "photobook": return (BOOK_LINES.find((x) => x.id === cfg.bookLineId)?.basePrice ?? 49.9) + cfg.spreads * SPREAD_PRICE;
+    case "photobook": return (BOOK_LINES.find((x) => x.id === cfg.bookLineId)?.basePrice ?? 49.9) + cfg.spreads * PRICES.spread;
     case "poster": return POSTER_SIZES.find((x) => x.id === cfg.posterSizeId)?.price ?? 24.9;
-    case "postcard": return POSTCARD_PRICE * cfg.copies;
+    case "postcard": return PRICES.postcard * cfg.copies;
     default: return 0;
   }
 }
@@ -184,4 +184,30 @@ export function lowResCount(cfg: ProductConfig, photos: Photo[]): number {
     const p = photoById(photos, s.photoId);
     return !!p?.width && !!p?.height && Math.max(p.width, p.height) < need;
   }).length;
+}
+
+// Размеры и замечания проверки качества по каждому слоту — уходят в заказ,
+// менеджер видит их в админке в превью макета и в «Состав.csv» пакета печати.
+export function slotPhotoInfo(cfg: ProductConfig, photos: Photo[]) {
+  const out: Record<string, { width?: number; height?: number; score?: number; issues: string[]; maxPrintWidthCm?: number; maxPrintHeightCm?: number; lowRes: boolean }> = {};
+  for (const s of cfg.slots) {
+    const p = photoById(photos, s.photoId);
+    if (!p) continue;
+    out[s.id] = {
+      width: p.width, height: p.height, score: p.quality?.score, issues: p.quality?.issues ?? [],
+      maxPrintWidthCm: p.quality?.maxPrintWidthCm, maxPrintHeightCm: p.quality?.maxPrintHeightCm, lowRes: lowResSlot(cfg, p),
+    };
+  }
+  return out;
+}
+
+function lowResSlot(cfg: ProductConfig, p: Photo): boolean {
+  let longCm = 0;
+  if (cfg.category === "print") {
+    longCm = Math.max(...(PRINT_FORMATS.find((f) => f.id === cfg.printFormatId)?.id ?? "10x15").split("x").map(Number));
+  } else if (cfg.category === "poster") {
+    longCm = Math.max(...(POSTER_SIZES.find((s) => s.id === cfg.posterSizeId)?.label ?? "30×40").split("×").map((x) => parseFloat(x)));
+  }
+  if (!longCm) return false;
+  return !!p.width && !!p.height && Math.max(p.width, p.height) < (longCm / 2.54) * 120;
 }

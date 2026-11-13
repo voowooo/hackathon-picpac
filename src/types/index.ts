@@ -14,6 +14,8 @@ export type BookTemplate = { id: string; name: string; description: string; titl
 export type MockOrder = {
   id: string; title: string; scenario: string; status: string; statusIndex: number;
   total: number; previewUri: string; date: string; items: string;
+  /** Заказ отменён менеджером (приходит с сервера). */
+  cancelled?: boolean;
 };
 
 export type ScenarioCard = { id: string; title: string; subtitle: string; productHint: "print" | "photobook" | "gift"; cover: string };

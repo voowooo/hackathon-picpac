@@ -46,7 +46,7 @@ export function ScreenHeader({ title, onBack, right }: { title: string; onBack?:
           </ScalePressable>
         ) : null}
       </View>
-      <Text style={styles.screenHeaderTitle} numberOfLines={1}>{title}</Text>
+      <Text style={styles.screenHeaderTitle} numberOfLines={2}>{title}</Text>
       <View style={[styles.headerSide, { alignItems: "flex-end" }]}>{right}</View>
     </View>
   );

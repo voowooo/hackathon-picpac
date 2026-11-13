@@ -6,13 +6,13 @@ import { PrimaryButton, SectionTitle } from '../components/ui/index';
 import { PRODUCT_TABS } from '../config/catalog';
 import { ProductChoiceCard } from '../features/catalog/ProductChoiceCard';
 import { DraftCard } from '../features/drafts/DraftCard';
-import { OrderTracker } from '../features/orders/OrderCards';
+import { ActiveOrdersRow } from '../features/orders/ActiveOrdersRow';
 import type { PicPacController } from '../state/usePicPacController';
 import { styles } from '../styles/app.styles';
 import { colors, spacing } from '../styles/theme';
 
 export function HomeScreen({ controller }: { controller: PicPacController }) {
-  const { activeOrder, deleteDraft, insets, openDraft, photos, setEditorPanel, setScreen, setSelectedOrderId, startFlow, visibleDrafts } = controller;
+  const { activeOrders, deleteDraft, insets, openDraft, photos, setEditorPanel, setScreen, setSelectedOrderId, startFlow, visibleDrafts } = controller;
   return (
     <ScrollView contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 100 }]} showsVerticalScrollIndicator={false}>
       <View style={styles.homeBrand}>
@@ -33,14 +33,13 @@ export function HomeScreen({ controller }: { controller: PicPacController }) {
       <PrimaryButton label="Загрузить фото" icon="images-outline" onPress={() => startFlow(null)} />
       {photos.length > 0 && (
         <Pressable style={styles.homeContinue} onPress={() => setScreen("builder")}>
-          <Text style={styles.linkText}>Продолжить мой заказ</Text>
+          <Text style={styles.linkText}>Продолжить последний заказ</Text>
         </Pressable>
       )}
 
-      {activeOrder ? (
+      {activeOrders.length > 0 ? (
         <MotionView kind="section" delay={120}>
-          <SectionTitle title="Ваш заказ в пути" />
-          <OrderTracker order={activeOrder} onPress={() => { setSelectedOrderId(activeOrder.id); setScreen("orders"); }} />
+          <ActiveOrdersRow orders={activeOrders} onOpen={(id) => { setSelectedOrderId(id); setScreen("orders"); }} />
         </MotionView>
       ) : null}
 

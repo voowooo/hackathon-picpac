@@ -3,10 +3,11 @@ import { router, usePathname } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Alert, Animated, LayoutAnimation, useWindowDimensions } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { COVER_URLS, DELIVERY_OPTIONS, INITIAL_ORDERS, MIN_SPREADS, ORDER_STATUSES, POSTER_SIZES, PRODUCT_TABS, PROMO_CODE, PROMO_DISCOUNT, SPREAD_LAYOUTS } from '../config/catalog';
+import { applyRemoteCatalog, COVER_URLS, DELIVERY_OPTIONS, INITIAL_ORDERS, MIN_SPREADS, ORDER_STATUSES, POSTER_SIZES, PRODUCT_TABS, PROMO_CODE, PROMO_DISCOUNT, SPREAD_LAYOUTS, STATUS_ICONS } from '../config/catalog';
 import { SCREEN_DEPTH, SCREEN_PATHS, screenFromPath } from "../config/navigation";
 import { exifLocation, exifTimestamp, geoDistance, makePhotoId } from '../domain/photos';
-import { aiSurcharge, baseEstimate, filledCount, getPrintFinish, lowResCount, makeConfig, normalizeLayouts, pageOfSlotId, productDetails, productTitle, slotPrintFinish, spreadSlotsFor, syncSlots } from '../domain/products';
+import { aiSurcharge, baseEstimate, filledCount, getPrintFinish, lowResCount, makeConfig, normalizeLayouts, pageOfSlotId, productDetails, productTitle, slotPhotoInfo, slotPrintFinish, spreadSlotsFor, syncSlots } from '../domain/products';
+import { ApiError, createOrder, fetchCatalog, fetchOrders, uploadOrderPhotos, validatePromo } from '../services/api';
 import { DRAFTS_KEY, storage } from '../services/storage';
 import { Draft, DropRect, IconName, MockOrder, Panel, Photo, PhotoEdit, PhotoProcessingUpdate, PhotoSlot, ProductCategory, ProductConfig, Screen, ViewRef } from '../types/index';
 import { analyzePhoto } from '../features/smart-tools/service';
@@ -91,6 +92,13 @@ export function usePicPacController() {
 
   const [recipient, setRecipient] = useState({ name: "", phone: "", address: "" });
 
+  // ——— Сервер PicPac (server/). Пока он не ответил, работаем на локальных моках. ———
+  const [apiOnline, setApiOnline] = useState(false);
+
+  const [catalogVersion, setCatalogVersion] = useState(0);
+
+  const [placingOrder, setPlacingOrder] = useState(false);
+
   const [drafts, setDrafts] = useState<Draft[]>([]);
 
   const visibleDrafts = useMemo(() => drafts.filter((draft) => PRODUCT_TABS.some((product) => product.id === draft.cfg.category)), [drafts]);
@@ -104,6 +112,42 @@ export function usePicPacController() {
   const [toast, setToast] = useState<{ id: number; text: string; icon: IconName } | null>(null);
 
   const showToast = useCallback((text: string, icon: IconName = "checkmark-circle") => setToast({ id: Date.now(), text, icon }), []);
+
+  // Последние известные статусы заказов: при смене (её делает менеджер в админке) показываем уведомление.
+  const knownStatus = useRef<Map<string, string> | null>(null);
+
+  const applyRemoteOrders = useCallback((list: MockOrder[]) => {
+    const key = (o: MockOrder) => `${o.statusIndex}|${o.cancelled ? 1 : 0}`;
+    const prev = knownStatus.current;
+    if (prev) {
+      const changed = list.find((o) => prev.has(o.id) && prev.get(o.id) !== key(o));
+      if (changed) {
+        if (changed.cancelled) showToast(`Заказ ${changed.id} отменён`, "close-circle-outline");
+        else showToast(`Заказ ${changed.id}: ${ORDER_STATUSES[changed.statusIndex].toLowerCase()}`, STATUS_ICONS[changed.statusIndex]);
+      }
+    }
+    knownStatus.current = new Map(list.map((o) => [o.id, key(o)]));
+    setOrders(list);
+  }, [setOrders, showToast]);
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const catalog = await fetchCatalog();
+        if (!alive) return;
+        applyRemoteCatalog(catalog);
+        setDeliveryId((id) => (DELIVERY_OPTIONS.some((d) => d.id === id) ? id : DELIVERY_OPTIONS[0].id));
+        setCatalogVersion((v) => v + 1);
+        setApiOnline(true);
+        const list = await fetchOrders();
+        if (alive) applyRemoteOrders(list);
+      } catch {
+        // Сервер недоступен — остаёмся на моках из config/catalog.ts.
+      }
+    })();
+    return () => { alive = false; };
+  }, [applyRemoteOrders]);
 
   // Редактор фото (поворот/обрезка): открывается из панели действий над выбранным фото.
   const [editingPhotoId, setEditingPhotoId] = useState<string | null>(null);
@@ -678,9 +722,34 @@ export function usePicPacController() {
 
   const deliveryPrice = delivery?.price ?? 0;
 
-  const promoValid = promo.trim().toUpperCase() === PROMO_CODE;
+  // С сервером промокод проверяется запросом (с задержкой на ввод), без сервера — локальный PROMO_CODE.
+  const [promoCheck, setPromoCheck] = useState<{ code: string; percent: number | null; error?: string } | null>(null);
 
-  const discount = promoValid ? price * PROMO_DISCOUNT : 0;
+  useEffect(() => {
+    if (!apiOnline || !promo) return;
+    const promoCode = promo.trim().toUpperCase();
+    let alive = true;
+    const t = setTimeout(async () => {
+      try {
+        const r = await validatePromo(promoCode);
+        if (alive) setPromoCheck(r.valid ? { code: promoCode, percent: r.discountPercent } : { code: promoCode, percent: null, error: r.error });
+      } catch {
+        if (alive) setPromoCheck(null);
+      }
+    }, 450);
+    return () => { alive = false; clearTimeout(t); };
+  }, [apiOnline, promo]);
+
+  const promoPercent = apiOnline
+    ? (promoCheck?.code === promo.trim().toUpperCase() ? promoCheck.percent ?? 0 : 0)
+    : (promo.trim().toUpperCase() === PROMO_CODE ? PROMO_DISCOUNT * 100 : 0);
+
+  const promoValid = promoPercent > 0;
+
+  const promoError = apiOnline && promo && promoCheck?.code === promo.trim().toUpperCase() ? promoCheck.error ?? null : null;
+
+  // Округляем до копеек так же, как сервер, чтобы сумма в приложении и в заказе совпадала.
+  const discount = promoValid ? Math.round(price * promoPercent) / 100 : 0;
 
   const totalPrice = price - discount + deliveryPrice;
 
@@ -703,24 +772,26 @@ export function usePicPacController() {
 
   const selectedOrder = orders.find((o) => o.id === selectedOrderId);
 
-  const activeOrder = orders.find((o) => o.statusIndex < ORDER_STATUSES.length - 1);
+  // Статусы меняет менеджер в админке — подтягиваем их: чаще на экранах заказов и профиля, реже на остальных.
+  const ordersScreen = screen === "orders" || screen === "profile";
+  useEffect(() => {
+    if (!apiOnline) return;
+    let alive = true;
+    // Ошибку сети игнорируем — остаётся уже загруженный список.
+    const load = () => fetchOrders().then((list) => { if (alive) applyRemoteOrders(list); }, () => { });
+    if (ordersScreen) void load();
+    const t = setInterval(load, ordersScreen ? 15000 : 30000);
+    return () => { alive = false; clearInterval(t); };
+  }, [apiOnline, ordersScreen, applyRemoteOrders]);
+
+  // Активные заказы: ещё в работе (не отменён, не доставлен) — для главной (горизонтальный список) и прочего.
+  const activeOrders = orders.filter((o) => !o.cancelled && o.statusIndex < ORDER_STATUSES.length - 1);
 
   const lowRes = useMemo(() => lowResCount(cfg, photos), [cfg, photos]);
   const qualityIssues = photos.filter(p => p.quality?.issues.length);
   const reviewCheckout = () => setScreen('checkout');
 
-  const placeOrder = () => {
-    if (!recipient.name.trim() || recipient.phone.trim().length < 7 || !recipient.address.trim()) {
-      showToast("Заполните имя, телефон и адрес", "alert-circle-outline");
-      return;
-    }
-    const aiNote = aiCount ? ` · AI: ${aiCount}` : "";
-    const newOrder: MockOrder = {
-      id: `ord-${Math.floor(Math.random() * 9000 + 1000)}`, title: productTitle(cfg), scenario: scenarioTitle ?? "Новый заказ",
-      status: "accepted", statusIndex: 0, total: totalPrice, previewUri: photos[0]?.uri ?? COVER_URLS[0], date: "Сегодня",
-      items: `${photos.length} фото · ${productDetails(cfg)}${aiNote}`,
-    };
-    setOrders((prev) => [newOrder, ...prev]);
+  const resetAfterOrder = (orderId: string) => {
     if (draftId) setDrafts((prev) => prev.filter((d) => d.id !== draftId));
     setDraftId(null);
     setSavedSig(null);
@@ -730,9 +801,60 @@ export function usePicPacController() {
     setCfg(makeConfig("print", []));
     setSelectedSlotId(null);
     setSwapSlotId(null);
-    setSelectedOrderId(newOrder.id);
+    setSelectedOrderId(orderId);
     setScreen("orders");
-    showToast("Заказ оформлен! Следите за статусом здесь", "sparkles");
+  };
+
+  const placeOrder = async () => {
+    if (placingOrder) return;
+    if (!recipient.name.trim() || recipient.phone.trim().length < 7 || !recipient.address.trim()) {
+      showToast("Заполните имя, телефон и адрес", "alert-circle-outline");
+      return;
+    }
+    const aiNote = aiCount ? ` · AI: ${aiCount}` : "";
+    const items = `${photos.length} фото · ${productDetails(cfg)}${aiNote}`;
+    const scenario = scenarioTitle ?? "Новый заказ";
+    const localPreview = photos[0]?.uri ?? COVER_URLS[0];
+
+    if (apiOnline) {
+      setPlacingOrder(true);
+      try {
+        const remote = await createOrder({
+          config: cfg, scenario, items, photoCount: filled, recipient, deliveryId, paymentId,
+          promoCode: promoValid ? promo.trim().toUpperCase() : undefined, clientTotal: totalPrice, photoInfo: slotPhotoInfo(cfg, photos),
+        });
+        // Пока фото грузятся, показываем локальное превью.
+        setOrders((prev) => [{ ...remote, previewUri: localPreview }, ...prev.filter((o) => o.id !== remote.id)]);
+        const orderCfg = cfg;
+        const orderPhotos = photos;
+        void uploadOrderPhotos(remote.id, orderCfg, orderPhotos).then(({ ok, total, error }) => {
+          if (ok < total) {
+            showToast(`Загружено фото: ${ok} из ${total}${error ? ` — ${error}` : ""}`, "cloud-offline-outline");
+            console.warn(`[PicPac] Фото заказа ${remote.id}: загружено ${ok} из ${total}`, error);
+          }
+        });
+        resetAfterOrder(remote.id);
+        showToast(`Заказ ${remote.id} оформлен! Следите за статусом здесь`, "sparkles");
+        return;
+      } catch (e) {
+        // Ошибку проверки (промокод закончился, позиция скрыта) показываем как есть.
+        if (e instanceof ApiError && e.status > 0) {
+          showToast(e.message, "alert-circle-outline");
+          return;
+        }
+        showToast("Сервер недоступен — заказ сохранён только на телефоне", "cloud-offline-outline");
+      } finally {
+        setPlacingOrder(false);
+      }
+    }
+
+    const newOrder: MockOrder = {
+      id: `ord-${Math.floor(Math.random() * 9000 + 1000)}`, title: productTitle(cfg), scenario,
+      status: "accepted", statusIndex: 0, total: totalPrice, previewUri: localPreview, date: "Сегодня", items,
+    };
+    setOrders((prev) => [newOrder, ...prev]);
+    resetAfterOrder(newOrder.id);
+    if (!apiOnline) showToast("Заказ оформлен! Следите за статусом здесь", "sparkles");
   };
 
   const advanceOrder = () =>
@@ -740,7 +862,7 @@ export function usePicPacController() {
 
   const panelTitle =
     panelContent === "products" ? "Что напечатать?" : panelContent === "settings" ? "Формат и оформление" : panelContent === "ai" ? "AI-студия" : "Фотографии и автомакет";
-  return { autoSmartArrange, qualityChecking, qualityIssues, reviewCheckout, activeOrder, aiCost, aiCount, applyPhotoEdit, applyPrintToAll, arOpen, autoArrange, autoArrangeByLocation, base, beginDrag, bookPage, cfg, checkoutPreviewOpen, chooseProductAfterUpload, chooseUploadedProduct, clearPhotos, clearSelectedSlot, deleteDraft, delivery, deliveryId, deliveryPrice, discount, dragPhoto, dropTargetId, editingPhoto, editorPanel, editorRatio, emptySlots, endDrag, filled, ghostPos, goToBuilder, handleSlotPress, insets, isSaved, leaveBuilder, lockTrayScroll, lowRes, moveDrag, onTrayPick, openDraft, openPhotoEditor, openTextEditor, orders, panelContent, panelTitle, paymentId, photos, pickMore, placeOrder, postcardInteracting, posterAspect, price, promo, promoValid, recipient, registerSlot, removePhoto, removeSpread, replaceSlotFromGallery, saveDraft, scenarioTitle, screen, selectedOrder, selectedSlot, selectedSlotId, setArOpen, setBookPage, setCheckoutPreviewOpen, setDeliveryId, setEditingPhotoId, setEditorPanel, setPaymentId, setPostcardInteracting, setPromo, setRecipient, setScenarioTitle, setScreen, setSelectedOrderId, setSpreadLayout, setSwapSlotId, setTextDraft, setTextEditing, showToast, slideDir, spreadIsEmpty, startFlow, swapSlotId, switchCategory, textDraft, textEditing, textField, toast, totalPrice, trayScrollLocked, unusedPhotos, updateCfg, updatePrintSlot, visibleDrafts, width };
+  return { apiOnline, catalogVersion, placingOrder, promoPercent, promoError, autoSmartArrange, qualityChecking, qualityIssues, reviewCheckout, activeOrders, aiCost, aiCount, applyPhotoEdit, applyPrintToAll, arOpen, autoArrange, autoArrangeByLocation, base, beginDrag, bookPage, cfg, checkoutPreviewOpen, chooseProductAfterUpload, chooseUploadedProduct, clearPhotos, clearSelectedSlot, deleteDraft, delivery, deliveryId, deliveryPrice, discount, dragPhoto, dropTargetId, editingPhoto, editorPanel, editorRatio, emptySlots, endDrag, filled, ghostPos, goToBuilder, handleSlotPress, insets, isSaved, leaveBuilder, lockTrayScroll, lowRes, moveDrag, onTrayPick, openDraft, openPhotoEditor, openTextEditor, orders, panelContent, panelTitle, paymentId, photos, pickMore, placeOrder, postcardInteracting, posterAspect, price, promo, promoValid, recipient, registerSlot, removePhoto, removeSpread, replaceSlotFromGallery, saveDraft, scenarioTitle, screen, selectedOrder, selectedSlot, selectedSlotId, setArOpen, setBookPage, setCheckoutPreviewOpen, setDeliveryId, setEditingPhotoId, setEditorPanel, setPaymentId, setPostcardInteracting, setPromo, setRecipient, setScenarioTitle, setScreen, setSelectedOrderId, setSpreadLayout, setSwapSlotId, setTextDraft, setTextEditing, showToast, slideDir, spreadIsEmpty, startFlow, swapSlotId, switchCategory, textDraft, textEditing, textField, toast, totalPrice, trayScrollLocked, unusedPhotos, updateCfg, updatePrintSlot, visibleDrafts, width };
 }
 export type PicPacController = ReturnType<typeof usePicPacController>;
 

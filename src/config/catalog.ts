@@ -123,9 +123,9 @@ export const MIN_SPREADS = 2;
 
 export const MAX_SPREADS = 20;
 
-export const POSTCARD_PRICE = 3.9;
-
-export const SPREAD_PRICE = 1.2;
+// Цены, которые не привязаны к позиции каталога. Объект (а не константы),
+// чтобы applyRemoteCatalog мог обновить их значениями с сервера.
+export const PRICES = { postcard: 3.9, spread: 1.2 };
 
 export const DEFAULT_PRINT_FINISH: PrintFinish = { margin: 2, marginColor: "#FFFFFF", frame: 0, frameColor: "#25382E" };
 
@@ -140,7 +140,36 @@ export const PRODUCT_TABS: { id: ProductCategory; label: string; short: string; 
   { id: "print", label: "Фотопечать", short: "Печать", icon: "print-outline", blurb: "Классические отпечатки", from: `от ${money(PRINT_FORMATS[0].pricePer)}` },
   { id: "photobook", label: "Фотокнига", short: "Книга", icon: "book-outline", blurb: "История в разворотах", from: `от ${money(BOOK_LINES[0].basePrice)}` },
   { id: "poster", label: "Постер", short: "Постер", icon: "image-outline", blurb: "Одно фото на стену", from: `от ${money(POSTER_SIZES[0].price)}` },
-  { id: "postcard", label: "Открытка", short: "Открытка", icon: "mail-outline", blurb: "Фото и тёплые слова", from: `от ${money(POSTCARD_PRICE)}` },
+  { id: "postcard", label: "Открытка", short: "Открытка", icon: "mail-outline", blurb: "Фото и тёплые слова", from: `от ${money(PRICES.postcard)}` },
 ];
 
 export const HINT_TO_CATEGORY: Record<string, ProductCategory> = { print: "print", photobook: "photobook", gift: "postcard" };
+
+// ═══════════ Каталог с сервера ═══════════
+// Массивы выше импортируются по всему приложению, поэтому серверные данные
+// подставляем в них «на месте» — без правок каждого экрана. Если сервер
+// недоступен, остаются значения по умолчанию из этого файла.
+type RemoteCatalogData = {
+  printFormats: PrintFormat[]; bookLines: BookLine[]; posterSizes: PosterSize[];
+  deliveryOptions: { id: string; label: string; eta: string; price: number }[];
+  prices: { spreadPrice: number; postcardPrice: number };
+};
+
+const replaceAll = <T,>(target: T[], next: T[] | undefined) => {
+  if (!Array.isArray(next) || !next.length) return;
+  target.splice(0, target.length, ...next);
+};
+
+export function applyRemoteCatalog(c: RemoteCatalogData) {
+  replaceAll(PRINT_FORMATS, c.printFormats);
+  replaceAll(BOOK_LINES, c.bookLines);
+  replaceAll(POSTER_SIZES, c.posterSizes);
+  replaceAll(DELIVERY_OPTIONS, c.deliveryOptions);
+  if (Number.isFinite(c.prices?.postcardPrice)) PRICES.postcard = c.prices.postcardPrice;
+  if (Number.isFinite(c.prices?.spreadPrice)) PRICES.spread = c.prices.spreadPrice;
+  const minPrint = Math.min(...PRINT_FORMATS.map((f) => f.pricePer));
+  const minBook = Math.min(...BOOK_LINES.map((b) => b.basePrice));
+  const minPoster = Math.min(...POSTER_SIZES.map((p) => p.price));
+  const from: Record<ProductCategory, number> = { print: minPrint, photobook: minBook, poster: minPoster, postcard: PRICES.postcard };
+  for (const tab of PRODUCT_TABS) tab.from = `от ${money(from[tab.id])}`;
+}
