@@ -1,5 +1,6 @@
+import { BookPageDepth } from './BookPageDepth';
 import { useRef } from "react";
-import { PanResponder, Text, useWindowDimensions, View } from "react-native";
+import { PanResponder, useWindowDimensions, View } from "react-native";
 import { styles } from '../../../styles/app.styles';
 import { MockupProps, ViewRef } from '../../../types/index';
 import { parseRatio } from '../../../utils/format';
@@ -16,7 +17,6 @@ export function BookSpreadView({
   const w = Math.round(fixedWidth ?? Math.min(winWidth - 56, 420));
   const h = Math.round(w / (2 * parseRatio(cfg.bookFormat)));
   const geometry = { pad: 10, gap: 4, pageW: (w - 20) / 2, pageH: h - 20 };
-  const pageNo = page * 2;
 
   const live = useRef({ page, onPage, max: cfg.spreads });
   live.current = { page, onPage, max: cfg.spreads };
@@ -46,11 +46,10 @@ export function BookSpreadView({
             selectedSlotId={selectedSlotId} swapSlotId={swapSlotId} dropTargetId={dropTargetId}
             onSlotPress={onSlotPress} registerSlot={registerSlot}
           />
-          <Text style={[styles.spreadNum, { left: 12 }]}>{pageNo}</Text>
-          <Text style={[styles.spreadNum, { right: 12 }]}>{pageNo + 1}</Text>
+          <BookPageDepth side="left" style={{right:w/2}}/>
+          <BookPageDepth side="right" style={{left:w/2}}/>
         </View>
       </View>
-      {/* <Text style={styles.spreadHint}>Листайте свайпом · нажмите на фото, чтобы выбрать</Text> */}
     </View>
   );
 }

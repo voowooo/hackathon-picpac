@@ -20,7 +20,6 @@ export const smartStyles = StyleSheet.create({
   tabTextOn: { color: '#364C49' },
   qualityHead: { flexDirection: 'row', alignItems: 'center', padding: 12, gap: 8 },
   qualityTitle: { flex: 1, fontSize: 12, color: '#364C49', fontWeight: '600' },
-  privacy: { color: '#7A8A84', fontSize: 11, textAlign: 'center' },
   disabled: { opacity: 0.4 },
   badge: { position: 'absolute', bottom: 5, left: 5, width: 22, height: 22, borderRadius: 11, alignItems: 'center', justifyContent: 'center', backgroundColor: '#F4C98C' },
 });

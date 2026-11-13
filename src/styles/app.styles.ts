@@ -1,3 +1,4 @@
+import { BOOK_PAGE_RADIUS, BOOK_COVER_RADIUS } from './bookSurface';
 import { StyleSheet } from "react-native";
 import { colors, radius, shadow, spacing } from './theme';
 
@@ -125,16 +126,13 @@ export const styles = StyleSheet.create({
   printScroll: { alignItems: "center" },
   printCard: { borderRadius: 8, overflow: "hidden", backgroundColor: "#fffdfa", ...shadow, shadowOpacity: 0.12, elevation: 2 },
   pageCell: { flex: 1, borderRadius: 0, borderWidth: 0 },
-  coverFlat: { borderRadius: 6, overflow: "hidden", ...shadow, shadowOpacity: 0.2, elevation: 4 },
+  coverFlat: { borderRadius: BOOK_COVER_RADIUS, overflow: "hidden", ...shadow, shadowOpacity: 0.2, elevation: 4 },
   coverPhotoArea: { flex: 1, overflow: "hidden" },
   coverTitleOverlay: { position: "absolute", left: 16, right: 16, bottom: 12, alignItems: "center" },
   coverFlatTitle: { fontSize: 16, fontWeight: "700", textAlign: "center", textShadowColor: "rgba(0,0,0,0.3)", textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 4 },
   coverCheck: { width: 22, height: 22, borderRadius: 6, borderWidth: 2, borderColor: colors.border, backgroundColor: colors.card, alignItems: "center", justifyContent: "center" },
   coverCheckOn: { backgroundColor: colors.accent, borderColor: colors.accent },
   swatchCustom: { alignItems: "center", justifyContent: "center", backgroundColor: colors.card },
-  hexRow: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: -spacing.xs, marginBottom: spacing.sm },
-  hexInput: { flex: 1, borderWidth: 1, borderColor: colors.border, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8, fontSize: 14, color: colors.text },
-  hexPreview: { marginRight: 0, marginBottom: 0 },
   postcard3DStage: { paddingVertical: 6, backgroundColor: "#E9EEE7" },
   postcard3DFace: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, borderRadius: 6, borderWidth: 1.5, borderColor: "#D5CEC2" },
   postcardFront: { flex: 1, padding: 12 },
@@ -225,7 +223,7 @@ export const styles = StyleSheet.create({
 
   // Разворот книги
   spreadStage: { alignItems: "center", gap: 12 },
-  spreadBook: { backgroundColor: "#fffdfa", borderRadius: 4, ...shadow, shadowOpacity: 0.18, elevation: 5, overflow: "hidden" },
+  spreadBook: { backgroundColor: "#fffdfa", borderRadius: BOOK_PAGE_RADIUS, ...shadow, shadowOpacity: 0.18, elevation: 5, overflow: "hidden" },
   spreadPages: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0 },
   spreadNum: { position: "absolute", bottom: 1, fontSize: 8, color: colors.textSecondary },
   spreadHint: { fontSize: 11, color: colors.textSecondary },
@@ -274,7 +272,7 @@ export const styles = StyleSheet.create({
 
   bottomNav: {
     position: "absolute", left: spacing.md, right: spacing.md, zIndex: 30, overflow: "hidden",
-    backgroundColor: 'transparent', borderRadius: 30, borderWidth: 1, borderColor: 'rgba(255,255,255,.8)',
+    backgroundColor: '#FFFFFF', borderRadius: 30, borderWidth: 1, borderColor: '#E6E2DC',
     paddingVertical: 10, paddingHorizontal: spacing.sm, ...shadow, shadowOpacity: 0.07, elevation: 4,
   },
   bottomNavRow: { flexDirection: "row" },

@@ -7,13 +7,15 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { styles } from '../../styles/app.styles';
 import { colors } from '../../styles/theme';
 import { IconName, Photo, PhotoEdit, PhotoProcessingUpdate, PhotoQuality } from '../../types/index';
-import { analyzePhoto, findSmartCrop, prepareEditorWorkingImage, processPhotoRecipe, resolveImageSize } from '../smart-tools/service';
+import { analyzePhoto, clearProcessingCache, findSmartCrop, prepareEditorWorkingImage, processPhotoRecipe, resolveImageSize } from '../smart-tools/service';
 import type { LocalEffect } from '../smart-tools/pixels';
 import { SmartToolsPanel } from '../smart-tools/SmartToolsPanel';
 import { clamp } from '../../utils/format';
 import { cropToPixels, fitCropToAspect, normalizedToDisplayCrop } from "./crop";
 import { historyMove, historyPush } from './history';
 import { editorStyles as ui } from './editor.styles';
+import { PhotoProcessingOverlay } from './PhotoProcessingOverlay';
+import { TransitionPhoto } from './TransitionPhoto';
 
 type Source = { uri: string; w: number; h: number; fullUri?: string };
 type Crop = { x: number; y: number; w: number; h: number };
@@ -51,8 +53,7 @@ export function PhotoEditorModal({
   const recipeCache = useRef(new Map<string, Source>());
   const [compare, setCompare] = useState(false);
   const [compareUri, setCompareUri] = useState<string>();
-  const [exportConfirm, setExportConfirm] = useState(false);
-  const [previewKey, setPreviewKey] = useState(0);
+  const [saveProgress, setSaveProgress] = useState<number | null>(null);
   const [history, setHistory] = useState<UndoState[]>([]);
   const [future, setFuture] = useState<UndoState[]>([]);
   const cropStart = useRef<UndoState | null>(null);
@@ -97,8 +98,9 @@ export function PhotoEditorModal({
   useEffect(() => {
     let cancelled = false;
     if (photo) {
+      clearProcessingCache();
       setRotate(photo.edit?.rotation ?? 0); setMode("view"); setSrc(null); setBusy(false); setRotating(false);
-      setWorkingBase(undefined); setQuality(photo.quality); setHistory([]); setFuture([]); setEffects([]); setAutoCrop(null); setFeedback(null); setCompare(false); setExportConfirm(false); processing.current = false; pendingCrop.current = null;
+      setWorkingBase(undefined); setQuality(photo.quality); setHistory([]); setFuture([]); setEffects([]); setAutoCrop(null); setFeedback(null); setCompare(false); setSaveProgress(null); processing.current = false; pendingCrop.current = null;
       effectBase.current = null; recipeCache.current.clear();
       setCrop({ x: 0, y: 0, w: 0, h: 0 });
       rotAnim.setValue(photo.edit?.rotation ?? 0);
@@ -119,15 +121,14 @@ export function PhotoEditorModal({
           if (!cancelled) {
             effectBase.current = { uri: baseline.uri, w: baseline.width, h: baseline.height, fullUri: baselineUri };
             setCompareUri(baseline.uri); setEffects(photo.recipe?.effects ?? []);
-            setPreviewKey(k => k + 1);
-            setSrc({ uri: image.uri, w: image.width, h: image.height });
+                setSrc({ uri: image.uri, w: image.width, h: image.height });
           }
         })
         .catch(() => {
           if (!cancelled) toast("Не удалось открыть фото", "warning-outline");
         });
     }
-    return () => { cancelled = true; };
+    return () => { cancelled = true; clearProcessingCache(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [photo?.id]);
 
@@ -135,7 +136,7 @@ export function PhotoEditorModal({
     if (closing.current || busy) return;
     closing.current = true;
     Animated.timing(entrance, { toValue: 0, duration: 240, easing: Easing.in(Easing.cubic), useNativeDriver: true }).start(({ finished }) => {
-      if (finished) onClose();
+      if (finished) { clearProcessingCache(); onClose(); }
     });
   };
 
@@ -302,7 +303,6 @@ export function PhotoEditorModal({
         const current = snapshot()!;
         pendingCrop.current = { ...current, crop };
         setWorkingBase(result.uri); setEffects(nextEffects);
-        setPreviewKey(k => k + 1);
         setSrc({ ...result }); setFeedback(null);
       }
     } catch (error) {
@@ -312,7 +312,6 @@ export function PhotoEditorModal({
   const restore = (previous: UndoState) => {
     pendingCrop.current = previous;
     effectBase.current = previous.origin; setCompareUri(previous.origin.uri);
-    setPreviewKey(k => k + 1);
     setSrc({ ...previous.src }); setWorkingBase(previous.base); setRotate(previous.rotate);
     setCrop(previous.crop); setQuality(previous.quality); setEffects(previous.effects); setAutoCrop(previous.autoCrop); setFeedback(null);
   };
@@ -331,37 +330,37 @@ export function PhotoEditorModal({
     try {
       const result = await prepareEditorWorkingImage(photo.originalUri ?? photo.uri, photo.width, photo.height);
       const measured = await analyzePhoto(result).catch(() => undefined);
-      remember(); setWorkingBase(null); setRotate(0); setPreviewKey(k => k + 1);
+      remember(); setWorkingBase(null); setRotate(0);
       effectBase.current = { uri: result.uri, w: result.width, h: result.height, fullUri: photo.originalUri ?? photo.uri }; setCompareUri(result.uri); setEffects([]); setAutoCrop(null);
       setSrc({ uri: result.uri, w: result.width, h: result.height }); setQuality(measured);
     } catch { toast('Не удалось открыть оригинал', 'warning-outline'); }
     finally { processing.current = false; setBusy(false); }
   };
 
-  const save = async (allowDownscale = false) => {
-    if (!photo || !src || !nat || busy || rotating || crop.w <= 0 || crop.h <= 0) return;
-    setBusy(true);
+  const save = async () => {
+    if (!photo || !src || !nat || busy || processing.current || rotating || crop.w <= 0 || crop.h <= 0) return;
+    processing.current = true; setBusy(true); setSaveProgress(0); setFeedback(null);
     try {
       const original = effectBase.current;
       if (!original) return;
       const sourceUri = original.fullUri ?? original.uri;
       const dimensions = await resolveImageSize(sourceUri);
-      if (effects.length && dimensions.width * dimensions.height > 8_000_000 && !allowDownscale) { setExportConfirm(true); return; }
-      setExportConfirm(false);
+      clearProcessingCache();
       const fullBase = effects.length
-        ? await processPhotoRecipe(sourceUri, dimensions.width, dimensions.height, effects, allowDownscale ? 2048 : Infinity)
+        ? await processPhotoRecipe(sourceUri, dimensions.width, dimensions.height, effects, Infinity, progress => setSaveProgress(Math.round(progress * 90)))
         : { uri: sourceUri, ...dimensions };
       const output = { uri: fullBase.uri, w: fullBase.width, h: fullBase.height };
       const outputNat = quarter ? { w: output.h, h: output.w } : output;
       const pixels = cropToPixels(crop, { w: dispW, h: dispH }, outputNat);
+      setSaveProgress(94);
       const result = await renderCurrent(output);
       const measured = await analyzePhoto(result).catch(() => undefined);
       onApply(photo.id, result.uri, { rotation: rot, crop: { x: pixels.originX / outputNat.w, y: pixels.originY / outputNat.h, w: pixels.width / outputNat.w, h: pixels.height / outputNat.h } }, { processingBaseUri: fullBase.uri, width: result.width, height: result.height, quality: measured, recipe: effects.length ? { sourceUri, effects } : null });
-      onClose();
+      clearProcessingCache(); onClose();
     } catch {
       toast("Не удалось изменить фото", "warning-outline");
     } finally {
-      setBusy(false);
+      processing.current = false; setBusy(false); setSaveProgress(null);
     }
   };
 
@@ -380,7 +379,7 @@ export function PhotoEditorModal({
         <View style={ui.header}>
           <Pressable style={ui.icon} onPress={closeEditor} disabled={busy} accessibilityRole="button" accessibilityLabel="Закрыть редактор фото"><Ionicons name="close" size={23} color="#364C49" /></Pressable>
           <Text style={[styles.peTitle, ui.title]}>Редактор фото</Text>
-          <Pressable style={[ui.done, (!src || busy || rotating) && ui.disabled]} onPress={mode === 'crop' ? finishCrop : () => void save()} disabled={!src || busy || rotating} accessibilityRole="button" accessibilityLabel="Сохранить фото"><Text style={ui.doneText}>Готово</Text></Pressable>
+          <Pressable style={[ui.done, (!src || busy || rotating) && ui.disabled]} onPress={() => void save()} disabled={!src || busy || rotating} accessibilityRole="button" accessibilityLabel="Сохранить фото"><Text style={ui.doneText}>{saveProgress !== null ? 'Сохраняем…' : 'Готово'}</Text></Pressable>
         </View>
         <View style={ui.stage}>
         <View style={[styles.peBox, { width: boxW, height: boxH }]}>
@@ -388,11 +387,9 @@ export function PhotoEditorModal({
             src ? (
               <Animated.View style={{ width: geometry.w, height: geometry.h, alignItems: "center", justifyContent: "center" }}>
                 {/* Размер исходника постоянен, поворот и масштаб анимируются вместе. */}
-                <Animated.Image
-                  key={`${src.uri}-${previewKey}`}
-                  source={{ uri: compare && compareUri ? compareUri : src.uri }}
+                <TransitionPhoto
+                  uri={src.uri} originalUri={compareUri} comparing={compare}
                   style={{ width: src.w * baseK, height: src.h * baseK, transform: [{ rotate: rotAnim.interpolate({ inputRange: [0, 360], outputRange: ["0deg", "360deg"] }) }, { scale: scaleAnim }] }}
-                  resizeMode="cover"
                 />
                 {crop.w > 0 && !compare ? (
                   <View style={StyleSheet.absoluteFill} pointerEvents={mode === "crop" && !rotating && !busy ? "auto" : "none"} {...cropPan.panHandlers}>
@@ -409,27 +406,23 @@ export function PhotoEditorModal({
                     </View>
                   </View>
                 ) : null}
+                <PhotoProcessingOverlay active={busy} />
               </Animated.View>
             ) : (
-              <ActivityIndicator color={colors.bg} size="large" />
+              <ActivityIndicator color={colors.accent} size="large" />
             )
           ) : null}
-          {busy ? <ActivityIndicator style={StyleSheet.absoluteFill} color="#fff" size="large" /> : null}
         </View>
 
         </View>
         <View style={ui.history}>
           <Pressable style={[ui.icon, (!history.length || busy || rotating) && ui.disabled]} accessibilityRole="button" accessibilityLabel="Предыдущий результат" disabled={!history.length || busy || rotating} onPress={() => moveHistory(false)}><Ionicons name="arrow-back" size={21} color="#364C49" /></Pressable>
           <Pressable style={[ui.icon, (!future.length || busy || rotating) && ui.disabled]} accessibilityRole="button" accessibilityLabel="Следующий результат" disabled={!future.length || busy || rotating} onPress={() => moveHistory(true)}><Ionicons name="arrow-forward" size={21} color="#364C49" /></Pressable>
-          <Text style={ui.historyText}>{busy ? 'Обработка…' : `${history.length + 1} / ${history.length + future.length + 1}`}</Text>
-          <Pressable style={ui.compare} accessibilityRole="button" accessibilityLabel="Удерживать для сравнения с исходником" disabled={!src || busy} onPressIn={() => setCompare(true)} onPressOut={() => setCompare(false)}><Text style={ui.compareText}>{compare ? 'Исходник' : 'Удержать: до'}</Text></Pressable>
+          <Text style={ui.historyText}>{saveProgress !== null ? `Сохранение ${saveProgress}%` : busy ? 'Обработка…' : `${history.length + 1} / ${history.length + future.length + 1}`}</Text>
+          <Pressable style={ui.compare} accessibilityRole="button" accessibilityLabel="Исходник" accessibilityHint="Удерживайте для сравнения с исходным фото" disabled={!src || busy} onPressIn={() => setCompare(true)} onPressOut={() => setCompare(false)}><Text style={ui.compareText}>Исходник</Text></Pressable>
         </View>
         <ScrollView style={{ flex: 1, width: '100%', maxWidth: 520, alignSelf: 'center' }} contentContainerStyle={{ paddingBottom: 16 }} showsVerticalScrollIndicator={false}>
           {feedback && <Text accessibilityLiveRegion="polite" style={ui.error}>{feedback}</Text>}
-          {exportConfirm && <View style={{ gap: 10, marginBottom: 12 }}>
-            <Text style={ui.hint}>Фото больше 8 Мп. Для экономии памяти эффекты можно сохранить в копии до 2048 px. Для крупной печати лучше оставить исходник.</Text>
-            <View style={ui.adjustments}><Pressable style={ui.adjustment} accessibilityRole="button" onPress={() => setExportConfirm(false)}><Text style={ui.adjustmentText}>Вернуться</Text></Pressable><Pressable style={ui.cropButton} accessibilityRole="button" disabled={busy} onPress={() => void save(true)}><Text style={ui.doneText}>Сохранить копию</Text></Pressable></View>
-          </View>}
           {mode === 'crop' ? <View>
             <Text style={ui.hint}>Передвиньте рамку или потяните за красный маркер. Пропорции печати сохраняются.</Text>
             <View style={ui.adjustments}>

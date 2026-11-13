@@ -38,7 +38,7 @@ export function ScreenHeader({ title, onBack, right }: { title: string; onBack?:
   const insets = useSafeAreaInsets();
   return (
     <View style={[styles.screenHeader, { position: 'absolute', top: -insets.top, left: 0, right: 0, paddingTop: insets.top + 8, height: insets.top + 64, zIndex: 40 }]}>
-      <FrostedBackground />
+      <FrostedBackground fadeBottom />
       <View style={styles.headerSide}>
         {onBack ? (
           <ScalePressable onPress={onBack} style={styles.backBtn} hitSlop={8} accessibilityRole="button" accessibilityLabel="Назад" scaleTo={0.88}>
@@ -82,7 +82,6 @@ export function BottomNav({
   const insets = useSafeAreaInsets();
   return (
     <View style={[styles.bottomNav, { bottom: Math.max(insets.bottom, spacing.sm) - 12 }]} accessibilityRole="tablist">
-      <FrostedBackground />
       <View style={styles.bottomNavRow}>
         <NavItem active={active === "home"} label="Главная" icon="home-outline" activeIcon="home" onPress={onHome} />
         <NavItem active={active === "orders"} label="Заказы" icon="receipt-outline" activeIcon="receipt" onPress={onOrders} />

@@ -14,7 +14,7 @@ export function ProductPickerScreen({ controller }: { controller: PicPacControll
   return (
     <View style={styles.flex}>
       <ScreenHeader title="Что напечатать" onBack={() => setScreen("home")} />
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={[styles.productChoiceContent, { paddingTop: 72, paddingBottom: insets.bottom + spacing.lg }]}>
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={[styles.productChoiceContent, { paddingTop: 80, paddingBottom: insets.bottom + spacing.lg }]}>
         <View style={styles.uploadedPhotosSummary}>
           <Ionicons name="images-outline" size={26} color={colors.text} />
           <View style={styles.flex}>

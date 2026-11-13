@@ -36,9 +36,9 @@ export const BOOK_TEMPLATES: BookTemplate[] = [
 ];
 
 export const BOOK_LINES: BookLine[] = [
-  { id: "lite", name: "Lite", desc: "Твёрдая обложка, гибкие страницы, до 160 стр.", formats: ["20×20", "21×30", "25×25"], basePrice: 49.9 },
-  { id: "classic", name: "Classic", desc: "Плотные страницы, раскрытие 180°, до 60 стр.", formats: ["20×20", "21×30"], basePrice: 69.9 },
-  { id: "premium", name: "Premium", desc: "Матовая бумага, плотные развороты, твёрдая обложка", formats: ["20×20", "21×30", "25×25", "30×20", "30×30"], basePrice: 99.9 },
+  { id: "lite", name: "Lite", desc: "Твёрдая обложка, гибкие страницы, до 160 стр.", formats: ["21×30", "20×20", "25×25"], basePrice: 49.9 },
+  { id: "classic", name: "Classic", desc: "Плотные страницы, раскрытие 180°, до 60 стр.", formats: ["21×30", "20×20"], basePrice: 69.9 },
+  { id: "premium", name: "Premium", desc: "Матовая бумага, плотные развороты, твёрдая обложка", formats: ["21×30", "20×20", "25×25", "30×20", "30×30"], basePrice: 99.9 },
 ];
 
 // Иконки-превью линеек (экран «Оформление фотокниги»): PNG в assets/books.

@@ -21,7 +21,7 @@ export function CheckoutScreen({ controller }: { controller: PicPacController })
       <ScreenHeader title="Доставка и оплата" onBack={() => setScreen("builder")} />
       <ScrollView
         scrollEnabled={!postcardInteracting}
-        contentContainerStyle={[styles.scrollContent, { paddingTop: 72, paddingBottom: insets.bottom + 120 }]}
+        contentContainerStyle={[styles.scrollContent, { paddingTop: 80, paddingBottom: insets.bottom + 120 }]}
         showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled"
       >
         <StepBar step={3} />

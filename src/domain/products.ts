@@ -103,7 +103,7 @@ export function syncSlots(cfg: ProductConfig, photos: Photo[], autofill = true):
 
 export function makeConfig(category: ProductCategory, photos: Photo[], prev?: ProductConfig): ProductConfig {
   const base: ProductConfig = prev ?? {
-    category, printFormatId: "10x15", paper: "matte", copies: 1, bookLineId: "lite", bookFormat: "25×25",
+    category, printFormatId: "10x15", paper: "matte", copies: 1, bookLineId: "lite", bookFormat: BOOK_LINES[0].formats[0],
     spreads: defaultSpreads(photos.length), coverColorId: "cream", bookTemplateId: BOOK_TEMPLATES[0].id,
     bookTitle: "Наши лучшие моменты", posterOrientation: "portrait", posterSizeId: POSTER_SIZES[1].id,
     postcardTemplateId: POSTCARD_TEMPLATES[0].id, postcardCaption: "С любовью и теплом", slots: [], aiTools: [], spreadLayouts: [],

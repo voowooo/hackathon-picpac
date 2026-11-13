@@ -1,15 +1,20 @@
+import { decodePhotoPng } from "./png";
 import { fromByteArray, toByteArray } from "base64-js";
 import { ImageManipulator, SaveFormat } from "expo-image-manipulator";
-import { File, Paths } from "expo-file-system";
+import { File, FileMode, Paths, type FileHandle } from "expo-file-system";
 import * as FileSystem from "expo-file-system/legacy";
-import { convertIndexedToRgb, decode, encode } from "fast-png";
+import { encode } from "fast-png";
 import { Image, Platform } from "react-native";
 import type { Photo, PhotoQuality } from "../../types";
 import { applyLocalEffect, suggestCrop, type LocalEffect, type Pixels } from "./pixels";
+import { createPngWriter, photoBands } from "./streaming-png";
+import { applyBackgroundMask } from "./mask";
 import { assessQuality } from "./quality";
 
 export const USE_AI_MOCKS = process.env.EXPO_PUBLIC_USE_AI_MOCKS === "true";
 export const EDITOR_WORK_MAX_SIDE = 2048;
+let recipeInputCache: { uri: string; width: number; height: number; side: number; pixels: Pixels } | undefined;
+export function clearProcessingCache() { recipeInputCache = undefined; }
 const MEGAPIXEL_LIMIT = 8_000_000;
 const LIGHTWEIGHT_MAX_SIDE = 2000;
 
@@ -77,22 +82,6 @@ async function loadFileBytes(uri: string): Promise<Uint8Array> {
   return toByteArray(base64);
 }
 
-function rgbaFromPngBytes(pngData: Uint8Array): Pixels {
-  const decoded = decode(pngData);
-  const png = decoded.palette ? { ...decoded, data: convertIndexedToRgb(decoded), channels: decoded.palette[0].length, depth: 8 } : decoded;
-  if (png.depth !== 8 && png.depth !== 16) throw new Error('Не удалось прочитать цветовой формат фото');
-  const data = new Uint8Array(png.width * png.height * 4);
-  const byte = (n: number) => png.depth === 16 ? Math.round(n / 257) : n;
-  for (let p = 0; p < png.width * png.height; p++) {
-    const i = p * png.channels, out = p * 4;
-    data[out] = byte(png.data[i]);
-    data[out + 1] = byte(png.channels >= 3 ? png.data[i + 1] : png.data[i]);
-    data[out + 2] = byte(png.channels >= 3 ? png.data[i + 2] : png.data[i]);
-    data[out + 3] = png.channels === 4 ? byte(png.data[i + 3]) : png.channels === 2 ? byte(png.data[i + 1]) : 255;
-  }
-  return { width: png.width, height: png.height, data };
-}
-
 async function writePngBytes(bytes: Uint8Array) {
   if (Platform.OS === 'web') {
     return URL.createObjectURL(new Blob([new Uint8Array(bytes).buffer], { type: 'image/png' }));
@@ -101,7 +90,7 @@ async function writePngBytes(bytes: Uint8Array) {
   try {
     const file = new File(Paths.cache, name);
     file.create({ overwrite: true });
-    file.write(bytes);
+    await file.write(bytes);
     return file.uri;
   } catch {
     if (FileSystem.cacheDirectory) {
@@ -128,7 +117,8 @@ export async function readPixels(
 ): Promise<Pixels> {
   const limit = maxSide === Infinity ? Math.max(width, height) : Number.isFinite(maxSide) && maxSide > 0 ? maxSide : EDITOR_WORK_MAX_SIDE;
   const raster = await renderToPngFile(uri, width, height, limit, rotate);
-  return rgbaFromPngBytes(await loadFileBytes(raster.uri));
+  try { return decodePhotoPng(await loadFileBytes(raster.uri)); }
+  finally { disposeRaster(raster.uri); }
 }
 
 export async function analyzePhoto(photo: Pick<Photo, "uri" | "width" | "height">): Promise<PhotoQuality | undefined> {
@@ -182,12 +172,87 @@ export async function processLocalPhoto(
 
 /** Decode and encode once for an entire recipe. Removing any effect replays
  * the remaining recipe from the baseline, without cumulative JPEG/PNG loss. */
-export async function processPhotoRecipe(uri: string, width: number, height: number, effects: LocalEffect[], maxSide = EDITOR_WORK_MAX_SIDE) {
+function disposeRaster(uri: string) {
+  try {
+    if (Platform.OS === 'web') { if (uri.startsWith('blob:')) URL.revokeObjectURL(uri); }
+    else new File(uri).delete();
+  } catch { /* Cleanup must not replace the processing result/error. */ }
+}
+
+export async function processPhotoRecipe(uri: string, width: number, height: number, effects: LocalEffect[], maxSide = EDITOR_WORK_MAX_SIDE, onProgress?: (fraction: number) => void) {
   if (USE_AI_MOCKS) throw new Error('Включён демо-режим. Отключите EXPO_PUBLIC_USE_AI_MOCKS для обработки.');
-  let pixels = await readPixels(uri, width, height, maxSide);
   const ordered = effects.includes('background') ? ['background' as const, ...effects.filter(e => e !== 'background')] : effects;
-  for (const effect of ordered) pixels = await applyLocalEffect(pixels, effect);
+  // One common exposure reference avoids band-dependent brightness and preview/export shifts.
+  let reference = await readPixels(uri, width, height, 512);
+  const references: Pixels[] = [];
+  for (const effect of ordered) {
+    references.push(reference);
+    reference = await applyLocalEffect(reference, effect);
+  }
+  if (maxSide === Infinity && width * height > MEGAPIXEL_LIMIT) {
+    clearProcessingCache();
+    return exportRecipeBands(uri, width, height, ordered, references, onProgress);
+  }
+  const side = Math.min(Math.max(width, height), maxSide);
+  let pixels: Pixels;
+  if (recipeInputCache?.uri === uri && recipeInputCache.width === width && recipeInputCache.height === height && recipeInputCache.side === side) pixels = recipeInputCache.pixels;
+  else {
+    pixels = await readPixels(uri, width, height, maxSide);
+    recipeInputCache = { uri, width, height, side, pixels };
+  }
+  for (let i = 0; i < ordered.length; i++) {
+    pixels = await applyLocalEffect(pixels, ordered[i], { reference: references[i] });
+    onProgress?.((i + 1) / ordered.length);
+  }
   return savePixelsToFile(pixels);
+}
+
+async function exportRecipeBands(uri: string, width: number, height: number, effects: LocalEffect[], references: Pixels[], onProgress?: (fraction: number) => void) {
+  const mask = effects.includes('background') ? await applyLocalEffect(await readPixels(uri, width, height, EDITOR_WORK_MAX_SIDE), 'background') : undefined;
+  const context = ImageManipulator.manipulate(uri);
+  let handle: FileHandle | undefined, file: File | undefined;
+  const chunks: ArrayBuffer[] = [];
+  try {
+    const source = await context.renderAsync();
+    try {
+      if (source.width !== width || source.height !== height) throw new Error('Image dimensions changed');
+      if (Platform.OS !== 'web') {
+        file = new File(Paths.cache, `picpac-full-${Date.now()}-${Math.random().toString(36).slice(2)}.png`);
+        file.create(); handle = file.open(FileMode.WriteOnly);
+      }
+      const writer = createPngWriter(width, height, bytes => {
+        if (handle) handle.writeBytesSync(bytes);
+        else chunks.push(new Uint8Array(bytes).buffer);
+      });
+      for (const band of photoBands(width, height)) {
+        const cropContext = ImageManipulator.manipulate(source);
+        let rasterUri: string | undefined;
+        try {
+          cropContext.crop({ originX: 0, originY: band.top, width, height: band.height });
+          const cropped = await cropContext.renderAsync();
+          let pixels: Pixels;
+          try {
+            const raster = await cropped.saveAsync({ format: SaveFormat.PNG }); rasterUri = raster.uri;
+            pixels = decodePhotoPng(await loadFileBytes(raster.uri));
+          } finally { cropped.release(); }
+          for (let i = 0; i < effects.length; i++) {
+            pixels = effects[i] === 'background' && mask
+              ? applyBackgroundMask(pixels, mask, width, height, band.top)
+              : await applyLocalEffect(pixels, effects[i], { reference: references[i], longestSide: Math.max(width, height) });
+          }
+          writer.push(pixels.data.subarray((band.y - band.top) * width * 4, (band.y - band.top + band.count) * width * 4));
+          onProgress?.((band.y + band.count) / height);
+          await new Promise(resolve => setTimeout(resolve, 0));
+        } finally { cropContext.release(); if (rasterUri) disposeRaster(rasterUri); }
+      }
+      handle?.close(); handle = undefined;
+      return { uri: file?.uri ?? URL.createObjectURL(new Blob(chunks, { type: 'image/png' })), width, height };
+    } finally { source.release(); }
+  } catch (error) {
+    handle?.close(); handle = undefined;
+    if (file) disposeRaster(file.uri);
+    throw error;
+  } finally { handle?.close(); context.release(); }
 }
 
 export async function findSmartCrop(uri: string, width: number, height: number, aspect: number, rotate = 0) {

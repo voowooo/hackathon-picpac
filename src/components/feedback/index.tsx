@@ -1,5 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
-import { useEffect, useRef } from "react";
+import { useEffect, useState } from "react";
 import { Animated, Pressable, Text, View } from "react-native";
 import { NATIVE } from '../../services/platform';
 import { styles } from '../../styles/app.styles';
@@ -7,7 +7,8 @@ import { colors } from '../../styles/theme';
 import { IconName } from '../../types/index';
 
 export function Toast({ toast, top }: { toast: { id: number; text: string; icon: IconName } | null; top: number }) {
-  const progress = useRef(new Animated.Value(0)).current;
+  const [progress] = useState(() => new Animated.Value(0));
+  const [endedId, setEndedId] = useState<number | null>(null);
   useEffect(() => {
     if (!toast) return;
     progress.setValue(0);
@@ -16,10 +17,10 @@ export function Toast({ toast, top }: { toast: { id: number; text: string; icon:
       Animated.delay(1900),
       Animated.timing(progress, { toValue: 0, duration: 240, useNativeDriver: NATIVE }),
     ]);
-    run.start();
+    run.start(({ finished }) => { if (finished) setEndedId(toast.id); });
     return () => run.stop();
   }, [toast, progress]);
-  if (!toast) return null;
+  if (!toast || endedId === toast.id) return null;
   return (
     <Animated.View
       pointerEvents="none"

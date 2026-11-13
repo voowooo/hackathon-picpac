@@ -1,10 +1,10 @@
-import { Ionicons } from "@expo/vector-icons";
-import { Pressable, Text, View } from "react-native";
+import { ColorField } from "../../../components/color-picker/ColorField";
+import { Text, View } from "react-native";
 import { Chip, SettingGroup } from '../../../components/ui/index';
 import { PRINT_COLORS } from '../../../config/catalog';
 import { styles } from '../../../styles/app.styles';
 import { PrintFinish } from '../../../types/index';
-import { hexColorsEqual, isDark, normalizeHexColor } from '../../../utils/format';
+import { normalizeHexColor } from '../../../utils/format';
 
 export function renderFinishEditor(finish: PrintFinish, update: (patch: Partial<PrintFinish>) => void, category: "print" | "poster") {
 
@@ -12,25 +12,7 @@ export function renderFinishEditor(finish: PrintFinish, update: (patch: Partial<
   const frames = category === "print" ? [0, 1, 2, 4] : [0, 3, 6, 10];
   const colorsFor = (kind: "marginColor" | "frameColor", title: string) => {
     const current = normalizeHexColor(finish[kind], kind === "marginColor" ? "#FFFFFF" : "#25382E");
-    return (
-      <View style={styles.finishColors}>
-        {PRINT_COLORS.map((color) => (
-          <Pressable
-            key={color.value} accessibilityRole="button" accessibilityLabel={`${title} · ${color.name}`}
-            accessibilityState={{ selected: hexColorsEqual(finish[kind], color.value) }}
-            onPress={() => update({ [kind]: color.value })}
-            style={[styles.finishSwatch, { backgroundColor: color.value }, hexColorsEqual(finish[kind], color.value) && styles.finishSwatchSelected]}
-          >
-            {hexColorsEqual(finish[kind], color.value) && <Ionicons name="checkmark" size={18} color={isDark(color.value) ? "#fff" : "#20372b"} />}
-          </Pressable>
-        ))}
-        {!PRINT_COLORS.some(color => hexColorsEqual(finish[kind], color.value)) ? (
-          <View style={[styles.finishSwatch, { backgroundColor: current }, styles.finishSwatchSelected]}>
-            <Ionicons name="checkmark" size={18} color={isDark(current) ? "#fff" : "#20372b"} />
-          </View>
-        ) : null}
-      </View>
-    );
+    return <ColorField title={title} value={current} presets={PRINT_COLORS} onChange={color=>update({[kind]:color})} />;
   };
   return (
     <>

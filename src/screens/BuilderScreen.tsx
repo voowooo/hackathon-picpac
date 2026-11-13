@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react';
 import { BlurTargetView } from 'expo-blur';
+import { ColorField } from '../components/color-picker/ColorField';
 import { FrostedSurface, FrostedTargetContext } from '../components/ui/FrostedSurface';
 import { builderStyles as ui } from '../styles/builder.styles';
 import { Ionicons } from "@expo/vector-icons";
@@ -23,14 +24,14 @@ import type { PicPacController } from '../state/usePicPacController';
 import { styles } from '../styles/app.styles';
 import { COVER_FRAME_COLORS, COVER_FRAME_WIDTHS, COVER_TITLE_COLORS, colors, spacing } from '../styles/theme';
 import { PrintFinish, ViewRef } from '../types/index';
-import { colorName, hexColorsEqual, isDark, money, normalizeHexColor, parseHexColor } from '../utils/format';
+import { colorName, money } from '../utils/format';
 
 export function BuilderScreen({ controller }: { controller: PicPacController }) {
   const { reviewCheckout } = controller;
   const [dockHeight, setDockHeight] = useState(180);
   const [printSettingsOpen, setPrintSettingsOpen] = useState(false);
   const blurTarget = useRef<ViewRef | null>(null);
-  const { aiCost, applyPrintToAll, beginDrag, bookPage, cfg, clearSelectedSlot, dragPhoto, dropTargetId, emptySlots, endDrag, filled, handleSlotPress, hexTarget, hexValid, hexValue, insets, isSaved, leaveBuilder, lockTrayScroll, moveDrag, onTrayPick, openPhotoEditor, openTextEditor, photos, pickMore, postcardInteracting, price, registerSlot, removeSpread, replaceSlotFromGallery, saveDraft, selectedSlot, selectedSlotId, setArOpen, setBookPage, setEditorPanel, setHexTarget, setHexValue, setPostcardInteracting, setScreen, setSpreadLayout, setSwapSlotId, spreadIsEmpty, swapSlotId, trayScrollLocked, unusedPhotos, updateCfg, updatePrintSlot } = controller;
+  const { aiCost, applyPrintToAll, beginDrag, bookPage, cfg, clearSelectedSlot, dragPhoto, dropTargetId, emptySlots, endDrag, filled, handleSlotPress, insets, isSaved, leaveBuilder, lockTrayScroll, moveDrag, onTrayPick, openPhotoEditor, openTextEditor, photos, pickMore, postcardInteracting, price, registerSlot, removeSpread, replaceSlotFromGallery, saveDraft, selectedSlot, selectedSlotId, setArOpen, setBookPage, setEditorPanel, setPostcardInteracting, setScreen, setSpreadLayout, setSwapSlotId, spreadIsEmpty, swapSlotId, trayScrollLocked, unusedPhotos, updateCfg, updatePrintSlot } = controller;
 
   const fixedCapacity = cfg.category === "photobook" || cfg.category === "poster" || cfg.category === "postcard";
   const settingsSummary =
@@ -45,7 +46,7 @@ export function BuilderScreen({ controller }: { controller: PicPacController }) 
     <FrostedTargetContext.Provider value={blurTarget}><View style={styles.flex}>
       {/* <StepBar step={2} /> */}
       <BlurTargetView ref={blurTarget} style={styles.flex}>
-      <ScrollView style={styles.flex} scrollEnabled={!postcardInteracting} showsVerticalScrollIndicator={false} contentContainerStyle={[styles.editorContent, { paddingTop: 72, paddingBottom: dockHeight + 28 }]}>
+      <ScrollView style={styles.flex} scrollEnabled={!postcardInteracting} showsVerticalScrollIndicator={false} contentContainerStyle={[styles.editorContent, { paddingTop: 80, paddingBottom: dockHeight + 28 }]}>
         <StepBar step={2} />
         <View style={styles.builderTitle}>
           <Text style={styles.productSelectorName}>{productTitle(cfg)}</Text>
@@ -182,36 +183,8 @@ export function BuilderScreen({ controller }: { controller: PicPacController }) 
                       placeholder="Заголовок на обложке" placeholderTextColor={colors.textSecondary} maxLength={40}
                     />
                     <SettingGroup title="Цвет названия" hint={colorName(cfg.coverTitleColor)}>
-                      {COVER_TITLE_COLORS.map((c) => (
-                        <Pressable
-                          key={c} accessibilityRole="button" accessibilityLabel={`Цвет названия: ${colorName(c)}`}
-                          onPress={() => updateCfg({ coverTitleColor: c })}
-                          style={[styles.swatch, { backgroundColor: c }, hexColorsEqual(cfg.coverTitleColor, c) && styles.swatchActive]}
-                        >
-                          {hexColorsEqual(cfg.coverTitleColor, c) ? <Ionicons name="checkmark" size={18} color={isDark(c) ? "#fff" : colors.text} /> : null}
-                        </Pressable>
-                      ))}
-                      {/* Свой цвет: ввод HEX */}
-                      <Pressable
-                        accessibilityRole="button" accessibilityLabel="Свой цвет названия"
-                        onPress={() => { setHexTarget(hexTarget === "title" ? null : "title"); setHexValue(normalizeHexColor(cfg.coverTitleColor, "#FFFFFF")); }}
-                        style={[styles.swatch, styles.swatchCustom, !COVER_TITLE_COLORS.some(c => hexColorsEqual(cfg.coverTitleColor, c)) && styles.swatchActive, { backgroundColor: parseHexColor(cfg.coverTitleColor) ?? colors.card }]}
-                      >
-                        {COVER_TITLE_COLORS.some(c => hexColorsEqual(cfg.coverTitleColor, c))
-                          ? <Ionicons name="color-palette-outline" size={16} color={colors.textSecondary} />
-                          : <Ionicons name="checkmark" size={18} color={isDark(cfg.coverTitleColor ?? "#FFFFFF") ? "#fff" : colors.text} />}
-                      </Pressable>
+                      <ColorField title="Цвет названия" value={cfg.coverTitleColor ?? '#FFFFFF'} presets={COVER_TITLE_COLORS.map(value=>({value,name:colorName(value)}))} onChange={color=>updateCfg({coverTitleColor:color})} />
                     </SettingGroup>
-                    {hexTarget === "title" ? (
-                      <View style={styles.hexRow}>
-                        <TextInput
-                          style={styles.hexInput} value={hexValue} maxLength={7} autoCapitalize="none" autoCorrect={false}
-                          placeholder="#RRGGBB" placeholderTextColor={colors.textSecondary}
-                          onChangeText={(t) => { setHexValue(t); const parsed = parseHexColor(t); if (parsed) updateCfg({ coverTitleColor: parsed }); }}
-                        />
-                        <View style={[styles.swatch, styles.hexPreview, { backgroundColor: parseHexColor(hexValue) ?? parseHexColor(cfg.coverTitleColor) ?? "#E5E0DA" }]} />
-                      </View>
-                    ) : null}
                   </>
                 ) : null}
 
@@ -231,36 +204,8 @@ export function BuilderScreen({ controller }: { controller: PicPacController }) 
                       ))}
                     </SettingGroup>
                     <SettingGroup title="Цвет рамки" hint={colorName(cfg.coverFrameColor)}>
-                      {COVER_FRAME_COLORS.map((c) => (
-                        <Pressable
-                          key={c} accessibilityRole="button" accessibilityLabel={`Цвет рамки: ${colorName(c)}`}
-                          onPress={() => updateCfg({ coverFrameColor: c })}
-                          style={[styles.swatch, { backgroundColor: c }, hexColorsEqual(cfg.coverFrameColor, c) && styles.swatchActive]}
-                        >
-                          {hexColorsEqual(cfg.coverFrameColor, c) ? <Ionicons name="checkmark" size={18} color={isDark(c) ? "#fff" : colors.text} /> : null}
-                        </Pressable>
-                      ))}
-                      {/* Свой цвет: ввод HEX */}
-                      <Pressable
-                        accessibilityRole="button" accessibilityLabel="Свой цвет рамки"
-                        onPress={() => { setHexTarget(hexTarget === "frame" ? null : "frame"); setHexValue(normalizeHexColor(cfg.coverFrameColor, "#F5E6D3")); }}
-                        style={[styles.swatch, styles.swatchCustom, !COVER_FRAME_COLORS.some(c => hexColorsEqual(cfg.coverFrameColor, c)) && styles.swatchActive, { backgroundColor: parseHexColor(cfg.coverFrameColor) ?? colors.card }]}
-                      >
-                        {COVER_FRAME_COLORS.some(c => hexColorsEqual(cfg.coverFrameColor, c))
-                          ? <Ionicons name="color-palette-outline" size={16} color={colors.textSecondary} />
-                          : <Ionicons name="checkmark" size={18} color={isDark(cfg.coverFrameColor ?? "#F5E6D3") ? "#fff" : colors.text} />}
-                      </Pressable>
+                      <ColorField title="Цвет рамки" value={cfg.coverFrameColor ?? '#F5E6D3'} presets={COVER_FRAME_COLORS.map(value=>({value,name:colorName(value)}))} onChange={color=>updateCfg({coverFrameColor:color})} />
                     </SettingGroup>
-                    {hexTarget === "frame" ? (
-                      <View style={styles.hexRow}>
-                        <TextInput
-                          style={styles.hexInput} value={hexValue} maxLength={7} autoCapitalize="none" autoCorrect={false}
-                          placeholder="#RRGGBB" placeholderTextColor={colors.textSecondary}
-                          onChangeText={(t) => { setHexValue(t); const parsed = parseHexColor(t); if (parsed) updateCfg({ coverFrameColor: parsed }); }}
-                        />
-                        <View style={[styles.swatch, styles.hexPreview, { backgroundColor: parseHexColor(hexValue) ?? parseHexColor(cfg.coverFrameColor) ?? "#E5E0DA" }]} />
-                      </View>
-                    ) : null}
                   </>
                 ) : null}
               </View>

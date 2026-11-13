@@ -20,7 +20,7 @@ export function BookSetupScreen({ controller }: { controller: PicPacController }
   return (
     <View style={styles.flex}>
       <ScreenHeader title="Оформление фотокниги" onBack={() => setScreen(chooseProductAfterUpload ? "productPicker" : "home")} />
-      <ScrollView contentContainerStyle={[styles.scrollContent, { paddingTop: 72, paddingBottom: insets.bottom + 120 }]} showsVerticalScrollIndicator={false}>
+      <ScrollView contentContainerStyle={[styles.scrollContent, { paddingTop: 80, paddingBottom: insets.bottom + 120 }]} showsVerticalScrollIndicator={false}>
         {scenarioTitle ? (
           <View style={styles.setupScenario}>
             <Ionicons name="sparkles-outline" size={16} color={colors.accent} />

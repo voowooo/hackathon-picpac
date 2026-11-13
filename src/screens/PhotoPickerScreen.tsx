@@ -15,7 +15,7 @@ export function PhotoPickerScreen({ controller }: { controller: PicPacController
   return (
     <View style={styles.flex}>
       <ScreenHeader title="Фотографии" onBack={() => setScreen("builder")} />
-      <ScrollView contentContainerStyle={[styles.scrollContent, { paddingTop: 72, paddingBottom: insets.bottom + 120 }]} showsVerticalScrollIndicator={false}>
+      <ScrollView contentContainerStyle={[styles.scrollContent, { paddingTop: 80, paddingBottom: insets.bottom + 120 }]} showsVerticalScrollIndicator={false}>
         <StepBar step={1} />
         <QualityNotice photos={photos} checking={controller.qualityChecking} />
         {photos.length === 0 ? (

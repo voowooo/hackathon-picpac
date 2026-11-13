@@ -23,7 +23,7 @@ export function ProfileScreen({ controller }: { controller: PicPacController }) 
   return (
     <View style={styles.flex}>
       <ScreenHeader title="Профиль" />
-      <ScrollView contentContainerStyle={[styles.scrollContent, { paddingTop: 72, paddingBottom: insets.bottom + 100 }]} showsVerticalScrollIndicator={false}>
+      <ScrollView contentContainerStyle={[styles.scrollContent, { paddingTop: 80, paddingBottom: insets.bottom + 100 }]} showsVerticalScrollIndicator={false}>
         <MotionView kind="section">
           <View style={styles.profileCard}>
             <View style={styles.profileAvatar}>

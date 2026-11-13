@@ -1,3 +1,4 @@
+import { BookPageDepth } from './BookPageDepth';
 import { Pressable, Text, View } from "react-native";
 import { COVER_COLORS } from '../../../config/catalog';
 import { styles } from '../../../styles/app.styles';
@@ -32,6 +33,7 @@ export function BookCoverFlat({
         />
       </View>
       {showTitle ? <View pointerEvents="box-none" style={styles.coverTitleOverlay}>{titleNode}</View> : null}
+      <BookPageDepth side="cover"/>
     </View>
   );
 }

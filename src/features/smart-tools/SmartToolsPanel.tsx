@@ -29,7 +29,6 @@ export function SmartToolsPanel({ disabled, active, onTool }: {
   const [tab, setTab] = useState<'correction' | 'filters'>('correction');
   return <View style={s.panel}>
     <View style={s.tabs}>{(['correction', 'filters'] as const).map(id => <Pressable key={id} accessibilityRole="tab" accessibilityState={{ selected: tab === id }} onPress={() => setTab(id)} style={[s.tab, tab === id && s.tabOn]}><Text style={[s.tabText, tab === id && s.tabTextOn]}>{id === 'correction' ? 'Коррекция' : 'Фильтры'}</Text></Pressable>)}</View>
-    <Text style={s.hint}>Нажмите для применения. Ещё раз — чтобы убрать.</Text>
     <View style={s.grid}>{(tab === 'correction' ? corrections : filters).map(tool => {
       const selected = active.includes(tool.id);
       return <Pressable key={tool.id} accessibilityRole="button" accessibilityLabel={tool.label} aria-pressed={selected} accessibilityState={{ selected, disabled }} disabled={disabled} onPress={() => onTool(tool.id)} style={[s.tool, s.cell, selected && s.toolOn, disabled && s.disabled]}>
@@ -38,6 +37,5 @@ export function SmartToolsPanel({ disabled, active, onTool }: {
         {selected && <Ionicons name="checkmark-circle" size={16} color="#DD5757" style={s.selected} />}
       </Pressable>;
     })}</View>
-    <Text style={s.privacy}>Обработка на устройстве · без отправки фото</Text>
   </View>;
 }

@@ -67,12 +67,20 @@ export function Track({ activeIndex }: { activeIndex: number }) {
     run.start();
     return () => run.stop();
   }, [activeIndex, fill]);
-  const lineW = w * 0.8;
+  const step = w / ORDER_STATUSES.length;
+  const lineW = step * (ORDER_STATUSES.length - 1);
+  const nodeInset = 18 + 4; // Circle radius plus breathing room on each side.
+  const gap = Math.max(0, step - nodeInset * 2);
   return (
     <View onLayout={(e) => setW(e.nativeEvent.layout.width)}>
-      <View style={[styles.trackLine, { left: w * 0.1, width: lineW }]}>
-        <Animated.View style={[styles.trackFill, { width: fill.interpolate({ inputRange: [0, 1], outputRange: [0, lineW] }) }]} />
-      </View>
+      {gap > 0 && ORDER_STATUSES.slice(0, -1).map((label, i) => (
+        <View key={label} style={[styles.trackLine, { left: step * (i + .5) + nodeInset, width: gap }]}>
+          <Animated.View style={[styles.trackFill, { width: fill.interpolate({
+            inputRange: [(i * step + nodeInset) / lineW, ((i + 1) * step - nodeInset) / lineW],
+            outputRange: [0, gap], extrapolate: 'clamp',
+          }) }]} />
+        </View>
+      ))}
       <View style={styles.trackRow}>
         {ORDER_STATUSES.map((label, i) => (
           <View key={label} style={styles.trackCol}>

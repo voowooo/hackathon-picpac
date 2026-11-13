@@ -1,18 +1,15 @@
-import type { AnchorsEvent, ArViewHandle, ProjectionEvent, TapEvent } from "@stewmore/expo-ar";
 import * as ImagePicker from "expo-image-picker";
 import { router, usePathname } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Alert, Animated, LayoutAnimation, PanResponder, useWindowDimensions } from "react-native";
+import { Alert, Animated, LayoutAnimation, useWindowDimensions } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { COVER_URLS, DELIVERY_OPTIONS, INITIAL_ORDERS, MIN_SPREADS, ORDER_STATUSES, POSTER_SIZES, PRODUCT_TABS, PROMO_CODE, PROMO_DISCOUNT, SPREAD_LAYOUTS } from '../config/catalog';
 import { SCREEN_DEPTH, SCREEN_PATHS, screenFromPath } from "../config/navigation";
 import { exifLocation, exifTimestamp, geoDistance, makePhotoId } from '../domain/photos';
 import { aiSurcharge, baseEstimate, filledCount, getPrintFinish, lowResCount, makeConfig, normalizeLayouts, pageOfSlotId, productDetails, productTitle, slotPrintFinish, spreadSlotsFor, syncSlots } from '../domain/products';
-import { AR_POSTER_HEIGHT_M } from '../services/ar';
 import { DRAFTS_KEY, storage } from '../services/storage';
 import { Draft, DropRect, IconName, MockOrder, Panel, Photo, PhotoEdit, PhotoProcessingUpdate, PhotoSlot, ProductCategory, ProductConfig, Screen, ViewRef } from '../types/index';
 import { analyzePhoto } from '../features/smart-tools/service';
-import { parseHexColor } from '../utils/format';
 import { makeSmartLayout } from '../features/smart-tools/layout';
 import { formatListedPhotoNumbers } from '../utils/format';
 
@@ -57,123 +54,6 @@ export function usePicPacController() {
   // AR-примерка постера (только для категории «poster»).
   const [arOpen, setArOpen] = useState(false);
 
-  // Настоящий AR через expo-ar: якорь-центр постера + три якоря-«линейки»
-  // на 1 м по осям плоскости (по их проекциям считаем масштаб экрана).
-  const arRef = useRef<ArViewHandle | null>(null);
-
-  const [arPhase, setArPhase] = useState<"searching" | "placed">("searching");
-
-  const [arTracking, setArTracking] = useState<"initializing" | "limited" | "normal" | "unavailable">("initializing");
-
-  const [arNotice, setArNotice] = useState<string | null>(null);
-
-  const arAnchors = useRef<{ center: string | null; refX: string | null; refY: string | null; refZ: string | null; pending: string | null }>({
-    center: null, refX: null, refY: null, refZ: null, pending: null,
-  });
-
-  const arTransforms = useRef(new Map<string, number[]>());
-
-  const arUserScale = useRef(1);
-
-  const arPinchInfo = useRef({ base: 1, dist: 0 });
-
-  // Позиция и размер постера — в анимационных значениях: проекции приходят
-  // каждый кадр, дерево ре-рендерить нельзя.
-  const arPosterPos = useRef(new Animated.ValueXY({ x: 0, y: 0 })).current;
-
-  const arPosterSize = useRef(new Animated.ValueXY({ x: 0, y: 0 })).current;
-
-  const clearArAnchors = () => {
-    const ids = [arAnchors.current.center, arAnchors.current.refX, arAnchors.current.refY, arAnchors.current.refZ]
-      .filter(Boolean) as string[];
-    ids.forEach((id) => void arRef.current?.removeAnchor(id));
-    arAnchors.current = { center: null, refX: null, refY: null, refZ: null, pending: null };
-    arUserScale.current = 1;
-    arPosterSize.setValue({ x: 0, y: 0 });
-    setArPhase("searching");
-  };
-
-  // Тап по AR-виду: снять старый постер (если был) и добавить якорь в точке тапа.
-  const handleArTap = async (e: { nativeEvent: TapEvent }) => {
-    const view = arRef.current;
-    if (!view || arAnchors.current.pending) return;
-    if (arAnchors.current.center) clearArAnchors();
-    setArNotice(null);
-    const anchor = await view.addAnchor(e.nativeEvent.x, e.nativeEvent.y);
-    if (!anchor) {
-      setArNotice("Поверхность не распознана — наведите камеру на стену при хорошем свете");
-      return;
-    }
-    arAnchors.current.pending = anchor.id;
-  };
-
-  // Якоря приходят с трансформами: по центру создаём три якоря-«линейки» на 1 м
-  // по каждой оси трансформа (какая ось лежит в стене — зависит от платформы).
-  const handleArAnchors = (e: { nativeEvent: AnchorsEvent }) => {
-    const view = arRef.current;
-    const st = arAnchors.current;
-    for (const a of e.nativeEvent.anchors) arTransforms.current.set(a.id, a.transform);
-    if (!view || !st.pending || st.center || !arTransforms.current.has(st.pending)) return;
-    const t = arTransforms.current.get(st.pending) as number[];
-    // Якорь-линейка: копия трансформа центра, сдвинутая на 1 м по оси axisIdx.
-    const makeRuler = (axisIdx: number): number[] => {
-      const m = [...t];
-      m[12] = t[12] + t[axisIdx * 4];
-      m[13] = t[13] + t[axisIdx * 4 + 1];
-      m[14] = t[14] + t[axisIdx * 4 + 2];
-      return m;
-    };
-    st.center = st.pending;
-    st.pending = null;
-    void view.addAnchorAtWorld?.(makeRuler(0))?.then((a) => { if (a) st.refX = a.id; });
-    void view.addAnchorAtWorld?.(makeRuler(1))?.then((a) => { if (a) st.refY = a.id; });
-    void view.addAnchorAtWorld?.(makeRuler(2))?.then((a) => { if (a) st.refZ = a.id; });
-  };
-
-  // Проекции каждый кадр: центр постера — проекция якоря-центра, масштаб —
-  // экранная длина метрового сегмента (берём ось, у которой проекция шире).
-  const handleArProjection = (e: { nativeEvent: ProjectionEvent }) => {
-    const st = arAnchors.current;
-    if (!st.center) return;
-    const pts = e.nativeEvent.points;
-    const c = pts.find((p) => p.id === st.center);
-    if (!c || !c.inFront) { arPosterSize.setValue({ x: 0, y: 0 }); return; }
-    let pxPerM = 0;
-    for (const rid of [st.refX, st.refY, st.refZ]) {
-      if (!rid) continue;
-      const r = pts.find((p) => p.id === rid);
-      if (r && r.inFront) pxPerM = Math.max(pxPerM, Math.hypot(r.x - c.x, r.y - c.y));
-    }
-    if (pxPerM < 8) { arPosterSize.setValue({ x: 0, y: 0 }); return; }
-    const h = AR_POSTER_HEIGHT_M * pxPerM * arUserScale.current;
-    const w = h * posterAspect;
-    arPosterPos.setValue({ x: c.x - w / 2, y: c.y - h / 2 });
-    arPosterSize.setValue({ x: w, y: h });
-    setArPhase((p) => (p === "placed" ? p : "placed"));
-  };
-
-  // Щипок двумя пальцами — физический размер постера (обновится со следующей проекцией).
-  const arPinchResponder = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder: (e) => e.nativeEvent.touches.length >= 2,
-      onMoveShouldSetPanResponder: (e) => e.nativeEvent.touches.length >= 2,
-      onPanResponderGrant: (e) => {
-        const t = e.nativeEvent.touches;
-        arPinchInfo.current = {
-          base: arUserScale.current,
-          dist: t.length >= 2 ? Math.hypot(t[1].pageX - t[0].pageX, t[1].pageY - t[0].pageY) : 0,
-        };
-      },
-      onPanResponderMove: (e) => {
-        const t = e.nativeEvent.touches;
-        const g = arPinchInfo.current;
-        if (t.length < 2 || g.dist <= 0) return;
-        const d = Math.hypot(t[1].pageX - t[0].pageX, t[1].pageY - t[0].pageY);
-        arUserScale.current = Math.min(5, Math.max(0.2, g.base * (d / g.dist)));
-      },
-    }),
-  ).current;
-
   const [panelContent, setPanelContent] = useState<Panel>("products");
 
   const setEditorPanel = useCallback((panel: Panel | null) => {
@@ -187,12 +67,8 @@ export function usePicPacController() {
 
   const [textField, setTextField] = useState<"postcardCaption" | "bookTitle">("postcardCaption");
 
-  // Ручной ввод цвета (#RRGGBB) для названия/рамки обложки: target = чья палитра открыта.
-  const [hexTarget, setHexTarget] = useState<"title" | "frame" | null>(null);
 
-  const [hexValue, setHexValue] = useState("");
 
-  const hexValid = parseHexColor(hexValue) !== null;
 
   const pickingPhoto = useRef(false);
 
@@ -864,7 +740,7 @@ export function usePicPacController() {
 
   const panelTitle =
     panelContent === "products" ? "Что напечатать?" : panelContent === "settings" ? "Формат и оформление" : panelContent === "ai" ? "AI-студия" : "Фотографии и автомакет";
-  return { autoSmartArrange, qualityChecking, qualityIssues, reviewCheckout, activeOrder, aiCost, aiCount, applyPhotoEdit, applyPrintToAll, arNotice, arOpen, arPhase, arPinchResponder, arPosterPos, arPosterSize, arRef, arTracking, autoArrange, autoArrangeByLocation, base, beginDrag, bookPage, cfg, checkoutPreviewOpen, chooseProductAfterUpload, chooseUploadedProduct, clearArAnchors, clearPhotos, clearSelectedSlot, deleteDraft, delivery, deliveryId, deliveryPrice, discount, dragPhoto, dropTargetId, editingPhoto, editorPanel, editorRatio, emptySlots, endDrag, filled, ghostPos, goToBuilder, handleArAnchors, handleArProjection, handleArTap, handleSlotPress, hexTarget, hexValid, hexValue, insets, isSaved, leaveBuilder, lockTrayScroll, lowRes, moveDrag, onTrayPick, openDraft, openPhotoEditor, openTextEditor, orders, panelContent, panelTitle, paymentId, photos, pickMore, placeOrder, postcardInteracting, posterAspect, price, promo, promoValid, recipient, registerSlot, removePhoto, removeSpread, replaceSlotFromGallery, saveDraft, scenarioTitle, screen, selectedOrder, selectedSlot, selectedSlotId, setArNotice, setArOpen, setArTracking, setBookPage, setCheckoutPreviewOpen, setDeliveryId, setEditingPhotoId, setEditorPanel, setHexTarget, setHexValue, setPaymentId, setPostcardInteracting, setPromo, setRecipient, setScenarioTitle, setScreen, setSelectedOrderId, setSpreadLayout, setSwapSlotId, setTextDraft, setTextEditing, showToast, slideDir, spreadIsEmpty, startFlow, swapSlotId, switchCategory, textDraft, textEditing, textField, toast, totalPrice, trayScrollLocked, unusedPhotos, updateCfg, updatePrintSlot, visibleDrafts, width };
+  return { autoSmartArrange, qualityChecking, qualityIssues, reviewCheckout, activeOrder, aiCost, aiCount, applyPhotoEdit, applyPrintToAll, arOpen, autoArrange, autoArrangeByLocation, base, beginDrag, bookPage, cfg, checkoutPreviewOpen, chooseProductAfterUpload, chooseUploadedProduct, clearPhotos, clearSelectedSlot, deleteDraft, delivery, deliveryId, deliveryPrice, discount, dragPhoto, dropTargetId, editingPhoto, editorPanel, editorRatio, emptySlots, endDrag, filled, ghostPos, goToBuilder, handleSlotPress, insets, isSaved, leaveBuilder, lockTrayScroll, lowRes, moveDrag, onTrayPick, openDraft, openPhotoEditor, openTextEditor, orders, panelContent, panelTitle, paymentId, photos, pickMore, placeOrder, postcardInteracting, posterAspect, price, promo, promoValid, recipient, registerSlot, removePhoto, removeSpread, replaceSlotFromGallery, saveDraft, scenarioTitle, screen, selectedOrder, selectedSlot, selectedSlotId, setArOpen, setBookPage, setCheckoutPreviewOpen, setDeliveryId, setEditingPhotoId, setEditorPanel, setPaymentId, setPostcardInteracting, setPromo, setRecipient, setScenarioTitle, setScreen, setSelectedOrderId, setSpreadLayout, setSwapSlotId, setTextDraft, setTextEditing, showToast, slideDir, spreadIsEmpty, startFlow, swapSlotId, switchCategory, textDraft, textEditing, textField, toast, totalPrice, trayScrollLocked, unusedPhotos, updateCfg, updatePrintSlot, visibleDrafts, width };
 }
 export type PicPacController = ReturnType<typeof usePicPacController>;
 
