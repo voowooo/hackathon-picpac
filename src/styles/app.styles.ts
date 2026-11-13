@@ -1,3 +1,4 @@
+import { BOOK_PAGE_RADIUS, BOOK_COVER_RADIUS } from './bookSurface';
 import { StyleSheet } from "react-native";
 import { colors, radius, shadow, spacing } from './theme';
 
@@ -71,7 +72,7 @@ export const styles = StyleSheet.create({
   attentionText: { flex: 1, fontSize: 13, color: colors.accent },
 
   // Панель выбранной ячейки
-  selBar: { backgroundColor: colors.card, borderRadius: 18, borderWidth: 1, borderColor: colors.accent, padding: 12, marginBottom: 8, gap: 10 },
+  selBar: { backgroundColor: 'transparent', paddingTop: 12, paddingBottom: 2, gap: 8 },
   printSelBar: { paddingHorizontal: spacing.lg, paddingTop: spacing.md, paddingBottom: spacing.md, backgroundColor: colors.bg, borderTopWidth: 1, borderTopColor: colors.border },
   selBarTop: { flexDirection: "row", alignItems: "center", gap: 8 },
   selBarTitle: { flex: 1, fontSize: 14, fontWeight: "800", color: colors.text },
@@ -125,16 +126,13 @@ export const styles = StyleSheet.create({
   printScroll: { alignItems: "center" },
   printCard: { borderRadius: 8, overflow: "hidden", backgroundColor: "#fffdfa", ...shadow, shadowOpacity: 0.12, elevation: 2 },
   pageCell: { flex: 1, borderRadius: 0, borderWidth: 0 },
-  coverFlat: { borderRadius: 6, overflow: "hidden", ...shadow, shadowOpacity: 0.2, elevation: 4 },
+  coverFlat: { borderRadius: BOOK_COVER_RADIUS, overflow: "hidden", ...shadow, shadowOpacity: 0.2, elevation: 4 },
   coverPhotoArea: { flex: 1, overflow: "hidden" },
   coverTitleOverlay: { position: "absolute", left: 16, right: 16, bottom: 12, alignItems: "center" },
   coverFlatTitle: { fontSize: 16, fontWeight: "700", textAlign: "center", textShadowColor: "rgba(0,0,0,0.3)", textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 4 },
   coverCheck: { width: 22, height: 22, borderRadius: 6, borderWidth: 2, borderColor: colors.border, backgroundColor: colors.card, alignItems: "center", justifyContent: "center" },
   coverCheckOn: { backgroundColor: colors.accent, borderColor: colors.accent },
   swatchCustom: { alignItems: "center", justifyContent: "center", backgroundColor: colors.card },
-  hexRow: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: -spacing.xs, marginBottom: spacing.sm },
-  hexInput: { flex: 1, borderWidth: 1, borderColor: colors.border, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8, fontSize: 14, color: colors.text },
-  hexPreview: { marginRight: 0, marginBottom: 0 },
   postcard3DStage: { paddingVertical: 6, backgroundColor: "#E9EEE7" },
   postcard3DFace: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, borderRadius: 6, borderWidth: 1.5, borderColor: "#D5CEC2" },
   postcardFront: { flex: 1, padding: 12 },
@@ -225,7 +223,7 @@ export const styles = StyleSheet.create({
 
   // Разворот книги
   spreadStage: { alignItems: "center", gap: 12 },
-  spreadBook: { backgroundColor: "#fffdfa", borderRadius: 4, ...shadow, shadowOpacity: 0.18, elevation: 5, overflow: "hidden" },
+  spreadBook: { backgroundColor: "#fffdfa", borderRadius: BOOK_PAGE_RADIUS, ...shadow, shadowOpacity: 0.18, elevation: 5, overflow: "hidden" },
   spreadPages: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0 },
   spreadNum: { position: "absolute", bottom: 1, fontSize: 8, color: colors.textSecondary },
   spreadHint: { fontSize: 11, color: colors.textSecondary },
@@ -269,12 +267,12 @@ export const styles = StyleSheet.create({
   sectionSubtitle: { fontSize: 14, color: colors.textSecondary, marginTop: 4 },
   screenHeader: { flexDirection: "row", alignItems: "center", paddingHorizontal: spacing.md, paddingVertical: spacing.sm },
   headerSide: { width: 88 },
-  backBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border, alignItems: "center", justifyContent: "center" },
+  backBtn: { width: 42, height: 42, borderRadius: 21, backgroundColor: 'rgba(255,255,255,0.78)', borderWidth: 1, borderColor: 'rgba(255,255,255,.9)', alignItems: "center", justifyContent: "center" },
   screenHeaderTitle: { flex: 1, textAlign: "center", fontSize: 17, fontWeight: "800", color: colors.text },
 
   bottomNav: {
     position: "absolute", left: spacing.md, right: spacing.md, zIndex: 30, overflow: "hidden",
-    backgroundColor: colors.card, borderRadius: 30, borderWidth: 1, borderColor: colors.border,
+    backgroundColor: '#FFFFFF', borderRadius: 30, borderWidth: 1, borderColor: '#E6E2DC',
     paddingVertical: 10, paddingHorizontal: spacing.sm, ...shadow, shadowOpacity: 0.07, elevation: 4,
   },
   bottomNavRow: { flexDirection: "row" },
@@ -293,7 +291,7 @@ export const styles = StyleSheet.create({
   thumbAdd: { borderRadius: radius.sm, borderWidth: 1.5, borderStyle: "dashed", borderColor: colors.accent, backgroundColor: colors.accentSoft, alignItems: "center", justifyContent: "center" },
   thumbRemove: { position: "absolute", top: 4, right: 4, width: 22, height: 22, borderRadius: 11, backgroundColor: "rgba(0,0,0,0.55)", alignItems: "center", justifyContent: "center" },
 
-  footerBar: { paddingHorizontal: spacing.lg, paddingTop: spacing.sm, backgroundColor: colors.bg, borderTopWidth: 1, borderTopColor: colors.border },
+  footerBar: { paddingHorizontal: spacing.lg, paddingTop: 12, backgroundColor: 'transparent', borderTopWidth: 0 },
   footerRow: { flexDirection: "row", alignItems: "center", gap: spacing.md },
   footerPriceLabel: { fontSize: 11, color: colors.textSecondary, fontWeight: "600" },
   footerPriceValue: { fontSize: 20, fontWeight: "800", color: colors.text },
@@ -316,19 +314,19 @@ export const styles = StyleSheet.create({
   noticeAction: { backgroundColor: colors.card, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 999, borderWidth: 1, borderColor: colors.border },
   noticeActionText: { fontSize: 12, fontWeight: "800", color: colors.accent },
   actionRow: { flexDirection: "row", gap: spacing.sm },
-  actionTile: { alignItems: "center", justifyContent: "center", gap: 4, paddingVertical: 12, borderRadius: radius.sm, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border },
+  actionTile: { flexDirection: 'row', alignItems: "center", justifyContent: "center", gap: 6, minHeight: 50, paddingVertical: 10, paddingHorizontal: 7, borderRadius: 16, backgroundColor: 'rgba(255,255,255,.85)', borderWidth: 1, borderColor: 'rgba(255,255,255,.95)' },
   actionTileActive: { borderColor: colors.accent, backgroundColor: "#FFFAF6" },
   actionTileLabel: { fontSize: 11, fontWeight: "700", color: colors.text },
 
-  trayDock: { paddingHorizontal: spacing.md, paddingTop: spacing.sm, paddingBottom: spacing.sm, backgroundColor: colors.card, borderTopWidth: 1, borderTopColor: colors.border },
+  trayDock: { paddingHorizontal: 16, paddingTop: 6, paddingBottom: 4, backgroundColor: 'transparent' },
   trayHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", minHeight: 36, gap: 8 },
   trayNote: { fontSize: 11, color: colors.textSecondary, marginBottom: 8 },
-  trayTitle: { fontSize: 13, fontWeight: "800", color: colors.text },
-  trayLegend: { flex: 1, fontSize: 11, color: colors.textSecondary, textAlign: "right" },
+  trayTitle: { flex: 1, fontSize: 13, fontWeight: "700", color: colors.text },
+  trayLegend: { fontSize: 11, color: colors.textSecondary, textAlign: "right" },
   trayRow: { gap: 8, alignItems: "center", paddingRight: spacing.sm },
-  trayAdd: { width: 64, height: 64, borderRadius: 10, borderWidth: 1.5, borderStyle: "dashed", borderColor: colors.accent, backgroundColor: colors.accentSoft, alignItems: "center", justifyContent: "center" },
+  trayAdd: { width: 70, height: 76, borderRadius: 16, borderWidth: 1, borderStyle: "dashed", borderColor: '#D4AAA0', backgroundColor: 'rgba(255,255,255,.6)', alignItems: "center", justifyContent: "center" },
   trayAddText: { fontSize: 10, fontWeight: "700", color: colors.accent },
-  trayThumb: { width: 64, height: 64, borderRadius: 10, overflow: "hidden", borderWidth: 2, borderColor: "transparent", backgroundColor: colors.border },
+  trayThumb: { width: 70, height: 76, borderRadius: 16, overflow: "hidden", borderWidth: 2, borderColor: "rgba(255,255,255,.85)", backgroundColor: colors.border },
   trayThumbDragging: { opacity: 0.35 },
   trayThumbSelected: { borderColor: colors.accent },
   trayBadge: { position: "absolute", right: 4, bottom: 4, width: 16, height: 16, borderRadius: 8, backgroundColor: colors.accent, alignItems: "center", justifyContent: "center" },

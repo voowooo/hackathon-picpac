@@ -1,20 +1,17 @@
-import type { AnchorsEvent, ArViewHandle, ProjectionEvent, TapEvent } from "@stewmore/expo-ar";
 import * as ImagePicker from "expo-image-picker";
 import { router, usePathname } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Alert, Animated, LayoutAnimation, PanResponder, useWindowDimensions } from "react-native";
+import { Alert, Animated, LayoutAnimation, useWindowDimensions } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { applyRemoteCatalog, COVER_URLS, DELIVERY_OPTIONS, INITIAL_ORDERS, MIN_SPREADS, ORDER_STATUSES, POSTER_SIZES, PRODUCT_TABS, PROMO_CODE, PROMO_DISCOUNT, SPREAD_LAYOUTS, STATUS_ICONS } from '../config/catalog';
-import { ApiError, createOrder, fetchCatalog, fetchOrders, uploadOrderPhotos, validatePromo } from '../services/api';
+import { COVER_URLS, DELIVERY_OPTIONS, INITIAL_ORDERS, MIN_SPREADS, ORDER_STATUSES, POSTER_SIZES, PRODUCT_TABS, PROMO_CODE, PROMO_DISCOUNT, SPREAD_LAYOUTS } from '../config/catalog';
 import { SCREEN_DEPTH, SCREEN_PATHS, screenFromPath } from "../config/navigation";
 import { exifLocation, exifTimestamp, geoDistance, makePhotoId } from '../domain/photos';
-import { aiSurcharge, baseEstimate, filledCount, getPrintFinish, lowResCount, makeConfig, normalizeLayouts, pageOfSlotId, productDetails, productTitle, slotPhotoInfo, slotPrintFinish, spreadSlotsFor, syncSlots } from '../domain/products';
-import { AR_POSTER_HEIGHT_M } from '../services/ar';
+import { aiSurcharge, baseEstimate, filledCount, getPrintFinish, lowResCount, makeConfig, normalizeLayouts, pageOfSlotId, productDetails, productTitle, slotPrintFinish, spreadSlotsFor, syncSlots } from '../domain/products';
 import { DRAFTS_KEY, storage } from '../services/storage';
 import { Draft, DropRect, IconName, MockOrder, Panel, Photo, PhotoEdit, PhotoProcessingUpdate, PhotoSlot, ProductCategory, ProductConfig, Screen, ViewRef } from '../types/index';
 import { analyzePhoto } from '../features/smart-tools/service';
-import { parseHexColor } from '../utils/format';
 import { makeSmartLayout } from '../features/smart-tools/layout';
+import { formatListedPhotoNumbers } from '../utils/format';
 
 export function usePicPacController() {
 
@@ -57,123 +54,6 @@ export function usePicPacController() {
   // AR-примерка постера (только для категории «poster»).
   const [arOpen, setArOpen] = useState(false);
 
-  // Настоящий AR через expo-ar: якорь-центр постера + три якоря-«линейки»
-  // на 1 м по осям плоскости (по их проекциям считаем масштаб экрана).
-  const arRef = useRef<ArViewHandle | null>(null);
-
-  const [arPhase, setArPhase] = useState<"searching" | "placed">("searching");
-
-  const [arTracking, setArTracking] = useState<"initializing" | "limited" | "normal" | "unavailable">("initializing");
-
-  const [arNotice, setArNotice] = useState<string | null>(null);
-
-  const arAnchors = useRef<{ center: string | null; refX: string | null; refY: string | null; refZ: string | null; pending: string | null }>({
-    center: null, refX: null, refY: null, refZ: null, pending: null,
-  });
-
-  const arTransforms = useRef(new Map<string, number[]>());
-
-  const arUserScale = useRef(1);
-
-  const arPinchInfo = useRef({ base: 1, dist: 0 });
-
-  // Позиция и размер постера — в анимационных значениях: проекции приходят
-  // каждый кадр, дерево ре-рендерить нельзя.
-  const arPosterPos = useRef(new Animated.ValueXY({ x: 0, y: 0 })).current;
-
-  const arPosterSize = useRef(new Animated.ValueXY({ x: 0, y: 0 })).current;
-
-  const clearArAnchors = () => {
-    const ids = [arAnchors.current.center, arAnchors.current.refX, arAnchors.current.refY, arAnchors.current.refZ]
-      .filter(Boolean) as string[];
-    ids.forEach((id) => void arRef.current?.removeAnchor(id));
-    arAnchors.current = { center: null, refX: null, refY: null, refZ: null, pending: null };
-    arUserScale.current = 1;
-    arPosterSize.setValue({ x: 0, y: 0 });
-    setArPhase("searching");
-  };
-
-  // Тап по AR-виду: снять старый постер (если был) и добавить якорь в точке тапа.
-  const handleArTap = async (e: { nativeEvent: TapEvent }) => {
-    const view = arRef.current;
-    if (!view || arAnchors.current.pending) return;
-    if (arAnchors.current.center) clearArAnchors();
-    setArNotice(null);
-    const anchor = await view.addAnchor(e.nativeEvent.x, e.nativeEvent.y);
-    if (!anchor) {
-      setArNotice("Поверхность не распознана — наведите камеру на стену при хорошем свете");
-      return;
-    }
-    arAnchors.current.pending = anchor.id;
-  };
-
-  // Якоря приходят с трансформами: по центру создаём три якоря-«линейки» на 1 м
-  // по каждой оси трансформа (какая ось лежит в стене — зависит от платформы).
-  const handleArAnchors = (e: { nativeEvent: AnchorsEvent }) => {
-    const view = arRef.current;
-    const st = arAnchors.current;
-    for (const a of e.nativeEvent.anchors) arTransforms.current.set(a.id, a.transform);
-    if (!view || !st.pending || st.center || !arTransforms.current.has(st.pending)) return;
-    const t = arTransforms.current.get(st.pending) as number[];
-    // Якорь-линейка: копия трансформа центра, сдвинутая на 1 м по оси axisIdx.
-    const makeRuler = (axisIdx: number): number[] => {
-      const m = [...t];
-      m[12] = t[12] + t[axisIdx * 4];
-      m[13] = t[13] + t[axisIdx * 4 + 1];
-      m[14] = t[14] + t[axisIdx * 4 + 2];
-      return m;
-    };
-    st.center = st.pending;
-    st.pending = null;
-    void view.addAnchorAtWorld?.(makeRuler(0))?.then((a) => { if (a) st.refX = a.id; });
-    void view.addAnchorAtWorld?.(makeRuler(1))?.then((a) => { if (a) st.refY = a.id; });
-    void view.addAnchorAtWorld?.(makeRuler(2))?.then((a) => { if (a) st.refZ = a.id; });
-  };
-
-  // Проекции каждый кадр: центр постера — проекция якоря-центра, масштаб —
-  // экранная длина метрового сегмента (берём ось, у которой проекция шире).
-  const handleArProjection = (e: { nativeEvent: ProjectionEvent }) => {
-    const st = arAnchors.current;
-    if (!st.center) return;
-    const pts = e.nativeEvent.points;
-    const c = pts.find((p) => p.id === st.center);
-    if (!c || !c.inFront) { arPosterSize.setValue({ x: 0, y: 0 }); return; }
-    let pxPerM = 0;
-    for (const rid of [st.refX, st.refY, st.refZ]) {
-      if (!rid) continue;
-      const r = pts.find((p) => p.id === rid);
-      if (r && r.inFront) pxPerM = Math.max(pxPerM, Math.hypot(r.x - c.x, r.y - c.y));
-    }
-    if (pxPerM < 8) { arPosterSize.setValue({ x: 0, y: 0 }); return; }
-    const h = AR_POSTER_HEIGHT_M * pxPerM * arUserScale.current;
-    const w = h * posterAspect;
-    arPosterPos.setValue({ x: c.x - w / 2, y: c.y - h / 2 });
-    arPosterSize.setValue({ x: w, y: h });
-    setArPhase((p) => (p === "placed" ? p : "placed"));
-  };
-
-  // Щипок двумя пальцами — физический размер постера (обновится со следующей проекцией).
-  const arPinchResponder = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder: (e) => e.nativeEvent.touches.length >= 2,
-      onMoveShouldSetPanResponder: (e) => e.nativeEvent.touches.length >= 2,
-      onPanResponderGrant: (e) => {
-        const t = e.nativeEvent.touches;
-        arPinchInfo.current = {
-          base: arUserScale.current,
-          dist: t.length >= 2 ? Math.hypot(t[1].pageX - t[0].pageX, t[1].pageY - t[0].pageY) : 0,
-        };
-      },
-      onPanResponderMove: (e) => {
-        const t = e.nativeEvent.touches;
-        const g = arPinchInfo.current;
-        if (t.length < 2 || g.dist <= 0) return;
-        const d = Math.hypot(t[1].pageX - t[0].pageX, t[1].pageY - t[0].pageY);
-        arUserScale.current = Math.min(5, Math.max(0.2, g.base * (d / g.dist)));
-      },
-    }),
-  ).current;
-
   const [panelContent, setPanelContent] = useState<Panel>("products");
 
   const setEditorPanel = useCallback((panel: Panel | null) => {
@@ -187,12 +67,8 @@ export function usePicPacController() {
 
   const [textField, setTextField] = useState<"postcardCaption" | "bookTitle">("postcardCaption");
 
-  // Ручной ввод цвета (#RRGGBB) для названия/рамки обложки: target = чья палитра открыта.
-  const [hexTarget, setHexTarget] = useState<"title" | "frame" | null>(null);
 
-  const [hexValue, setHexValue] = useState("");
 
-  const hexValid = parseHexColor(hexValue) !== null;
 
   const pickingPhoto = useRef(false);
 
@@ -215,53 +91,6 @@ export function usePicPacController() {
 
   const [recipient, setRecipient] = useState({ name: "", phone: "", address: "" });
 
-  // ——— Сервер PicPac (server/). Пока он не ответил, работаем на локальных моках. ———
-  const [apiOnline, setApiOnline] = useState(false);
-
-  const [catalogVersion, setCatalogVersion] = useState(0);
-
-  const [placingOrder, setPlacingOrder] = useState(false);
-
-  const [toast, setToast] = useState<{ id: number; text: string; icon: IconName } | null>(null);
-
-  const showToast = useCallback((text: string, icon: IconName = "checkmark-circle") => setToast({ id: Date.now(), text, icon }), []);
-
-  // Последние известные статусы заказов: при смене (её делает менеджер в админке) показываем уведомление.
-  const knownStatus = useRef<Map<string, string> | null>(null);
-
-  const applyRemoteOrders = useCallback((list: MockOrder[]) => {
-    const key = (o: MockOrder) => `${o.statusIndex}|${o.cancelled ? 1 : 0}`;
-    const prev = knownStatus.current;
-    if (prev) {
-      const changed = list.find((o) => prev.has(o.id) && prev.get(o.id) !== key(o));
-      if (changed) {
-        if (changed.cancelled) showToast(`Заказ ${changed.id} отменён`, "close-circle-outline");
-        else showToast(`Заказ ${changed.id}: ${ORDER_STATUSES[changed.statusIndex].toLowerCase()}`, STATUS_ICONS[changed.statusIndex]);
-      }
-    }
-    knownStatus.current = new Map(list.map((o) => [o.id, key(o)]));
-    setOrders(list);
-  }, [setOrders, showToast]);
-
-  useEffect(() => {
-    let alive = true;
-    (async () => {
-      try {
-        const catalog = await fetchCatalog();
-        if (!alive) return;
-        applyRemoteCatalog(catalog);
-        setDeliveryId((id) => (DELIVERY_OPTIONS.some((d) => d.id === id) ? id : DELIVERY_OPTIONS[0].id));
-        setCatalogVersion((v) => v + 1);
-        setApiOnline(true);
-        const list = await fetchOrders();
-        if (alive) applyRemoteOrders(list);
-      } catch {
-        // Сервер недоступен — остаёмся на моках из config/catalog.ts.
-      }
-    })();
-    return () => { alive = false; };
-  }, [applyRemoteOrders]);
-
   const [drafts, setDrafts] = useState<Draft[]>([]);
 
   const visibleDrafts = useMemo(() => drafts.filter((draft) => PRODUCT_TABS.some((product) => product.id === draft.cfg.category)), [drafts]);
@@ -271,6 +100,10 @@ export function usePicPacController() {
   const [savedSig, setSavedSig] = useState<string | null>(null);
 
   const draftsLoaded = useRef(false);
+
+  const [toast, setToast] = useState<{ id: number; text: string; icon: IconName } | null>(null);
+
+  const showToast = useCallback((text: string, icon: IconName = "checkmark-circle") => setToast({ id: Date.now(), text, icon }), []);
 
   // Редактор фото (поворот/обрезка): открывается из панели действий над выбранным фото.
   const [editingPhotoId, setEditingPhotoId] = useState<string | null>(null);
@@ -284,7 +117,7 @@ export function usePicPacController() {
   const applyPhotoEdit = useCallback((photoId: string, uri: string, edit: PhotoEdit, update?: PhotoProcessingUpdate) => {
     setPhotosState((prev) => {
       const next = prev.map((p) => (p.id === photoId ? { ...p, uri, edit, originalUri: p.originalUri ?? p.uri,
-        ...(update ? { width: update.width, height: update.height, quality: update.quality,
+        ...(update ? { width: update.width, height: update.height, quality: update.quality, recipe: update.recipe === undefined ? p.recipe : update.recipe ?? undefined,
           processingBaseUri: update.processingBaseUri === undefined ? p.processingBaseUri : update.processingBaseUri ?? undefined } : {}),
       } : p));
       photosRef.current = next;
@@ -379,18 +212,27 @@ export function usePicPacController() {
 
   // ——— Фото ———
   const [qualityChecking, setQualityChecking] = useState(0);
-  const scanQuality = async (picked: Photo[]) => {
+  const scanQuality = async (picked: Photo[], notify: boolean) => {
     setQualityChecking(n => n + picked.length);
+    const badIds: string[] = [];
     for (const p of picked) {
       const quality = await analyzePhoto(p);
+      if (quality?.issues.length) badIds.push(p.id);
       setPhotosState(prev => {
         const next = prev.map(current => current.id === p.id && current.uri === p.uri ? { ...current, quality } : current);
         photosRef.current = next; return next;
       });
       setQualityChecking(n => Math.max(0, n - 1));
     }
+    if (notify && badIds.length) {
+      const numbers = badIds.map(id => photosRef.current.findIndex(p => p.id === id) + 1).filter(n => n > 0);
+      if (numbers.length) {
+        const listed = formatListedPhotoNumbers(numbers);
+        showToast(`${listed.charAt(0).toUpperCase() + listed.slice(1)} — низкого качества.`, 'warning-outline');
+      }
+    }
   };
-  const pickAssets = async (multi: boolean): Promise<Photo[]> => {
+  const pickAssets = async (multi: boolean, notifyQuality = screen !== 'productPicker' && screen !== 'photoPicker'): Promise<Photo[]> => {
     const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!perm.granted) {
       Alert.alert("Нужен доступ", "Разрешите доступ к галерее, чтобы выбрать фотографии.");
@@ -408,7 +250,7 @@ export function usePicPacController() {
       // Координаты из EXIF — по ним «Разложить по местам» сгруппирует снимки, снятые рядом.
       geo: exifLocation(a.exif),
     }));
-    setTimeout(() => void scanQuality(picked), 0);
+    setTimeout(() => void scanQuality(picked, notifyQuality), 0);
     return picked;
   };
 
@@ -451,7 +293,7 @@ export function usePicPacController() {
     if (pickingPhoto.current) return;
     pickingPhoto.current = true;
     try {
-      const picked = await pickAssets(true);
+      const picked = await pickAssets(true, category !== null);
       if (!picked.length) return;
       setPhotos(picked);
       setScenarioTitle(title);
@@ -836,35 +678,9 @@ export function usePicPacController() {
 
   const deliveryPrice = delivery?.price ?? 0;
 
-  const promoCode = promo.trim().toUpperCase();
+  const promoValid = promo.trim().toUpperCase() === PROMO_CODE;
 
-  // С сервером промокод проверяется запросом (с задержкой на ввод), без сервера — локальный PROMO_CODE.
-  const [promoCheck, setPromoCheck] = useState<{ code: string; percent: number | null; error?: string } | null>(null);
-
-  useEffect(() => {
-    if (!apiOnline || !promoCode) return;
-    let alive = true;
-    const t = setTimeout(async () => {
-      try {
-        const r = await validatePromo(promoCode);
-        if (alive) setPromoCheck(r.valid ? { code: promoCode, percent: r.discountPercent } : { code: promoCode, percent: null, error: r.error });
-      } catch {
-        if (alive) setPromoCheck(null);
-      }
-    }, 450);
-    return () => { alive = false; clearTimeout(t); };
-  }, [apiOnline, promoCode]);
-
-  const promoPercent = apiOnline
-    ? (promoCheck?.code === promoCode ? promoCheck.percent ?? 0 : 0)
-    : (promoCode === PROMO_CODE ? PROMO_DISCOUNT * 100 : 0);
-
-  const promoValid = promoPercent > 0;
-
-  const promoError = apiOnline && promoCode && promoCheck?.code === promoCode ? promoCheck.error ?? null : null;
-
-  // Округляем до копеек так же, как сервер, чтобы сумма в приложении и в заказе совпадала.
-  const discount = promoValid ? Math.round(price * promoPercent) / 100 : 0;
+  const discount = promoValid ? price * PROMO_DISCOUNT : 0;
 
   const totalPrice = price - discount + deliveryPrice;
 
@@ -887,35 +703,24 @@ export function usePicPacController() {
 
   const selectedOrder = orders.find((o) => o.id === selectedOrderId);
 
-  // Статусы меняет менеджер в админке — подтягиваем их: чаще на экранах заказов и профиля, реже на остальных.
-  const ordersScreen = screen === "orders" || screen === "profile";
-  useEffect(() => {
-    if (!apiOnline) return;
-    let alive = true;
-    // Ошибку сети игнорируем — остаётся уже загруженный список.
-    const load = () => fetchOrders().then((list) => { if (alive) applyRemoteOrders(list); }, () => { });
-    if (ordersScreen) void load();
-    const t = setInterval(load, ordersScreen ? 15000 : 30000);
-    return () => { alive = false; clearInterval(t); };
-  }, [apiOnline, ordersScreen, applyRemoteOrders]);
-
-  // Активные заказы: ещё в работе (не отменён, не доставлен) — для главной (горизонтальный список) и прочего.
-  const activeOrders = orders.filter((o) => !o.cancelled && o.statusIndex < ORDER_STATUSES.length - 1);
+  const activeOrder = orders.find((o) => o.statusIndex < ORDER_STATUSES.length - 1);
 
   const lowRes = useMemo(() => lowResCount(cfg, photos), [cfg, photos]);
   const qualityIssues = photos.filter(p => p.quality?.issues.length);
-  const usedQualityIssues = qualityIssues.filter(p => cfg.slots.some(s => s.photoId === p.id));
-  const [checkoutWarning, setCheckoutWarning] = useState<string | null>(null);
-  useEffect(() => { setCheckoutWarning(null); }, [cfg, photos]);
-  const reviewCheckout = () => {
-    if ((usedQualityIssues.length || lowRes) && !checkoutWarning) {
-      setCheckoutWarning(`Проверьте фото перед печатью: ${usedQualityIssues.length ? usedQualityIssues.map(p => p.quality!.issues.join(', ')).filter((v, i, a) => a.indexOf(v) === i).slice(0, 3).join(' · ') : 'недостаточно пикселей для выбранного формата'}. Обработка не восстанавливает утраченные детали.`);
+  const reviewCheckout = () => setScreen('checkout');
+
+  const placeOrder = () => {
+    if (!recipient.name.trim() || recipient.phone.trim().length < 7 || !recipient.address.trim()) {
+      showToast("Заполните имя, телефон и адрес", "alert-circle-outline");
       return;
     }
-    setScreen('checkout');
-  };
-
-  const resetAfterOrder = (orderId: string) => {
+    const aiNote = aiCount ? ` · AI: ${aiCount}` : "";
+    const newOrder: MockOrder = {
+      id: `ord-${Math.floor(Math.random() * 9000 + 1000)}`, title: productTitle(cfg), scenario: scenarioTitle ?? "Новый заказ",
+      status: "accepted", statusIndex: 0, total: totalPrice, previewUri: photos[0]?.uri ?? COVER_URLS[0], date: "Сегодня",
+      items: `${photos.length} фото · ${productDetails(cfg)}${aiNote}`,
+    };
+    setOrders((prev) => [newOrder, ...prev]);
     if (draftId) setDrafts((prev) => prev.filter((d) => d.id !== draftId));
     setDraftId(null);
     setSavedSig(null);
@@ -925,60 +730,9 @@ export function usePicPacController() {
     setCfg(makeConfig("print", []));
     setSelectedSlotId(null);
     setSwapSlotId(null);
-    setSelectedOrderId(orderId);
+    setSelectedOrderId(newOrder.id);
     setScreen("orders");
-  };
-
-  const placeOrder = async () => {
-    if (placingOrder) return;
-    if (!recipient.name.trim() || recipient.phone.trim().length < 7 || !recipient.address.trim()) {
-      showToast("Заполните имя, телефон и адрес", "alert-circle-outline");
-      return;
-    }
-    const aiNote = aiCount ? ` · AI: ${aiCount}` : "";
-    const items = `${photos.length} фото · ${productDetails(cfg)}${aiNote}`;
-    const scenario = scenarioTitle ?? "Новый заказ";
-    const localPreview = photos[0]?.uri ?? COVER_URLS[0];
-
-    if (apiOnline) {
-      setPlacingOrder(true);
-      try {
-        const remote = await createOrder({
-          config: cfg, scenario, items, photoCount: filled, recipient, deliveryId, paymentId,
-          promoCode: promoValid ? promoCode : undefined, clientTotal: totalPrice, photoInfo: slotPhotoInfo(cfg, photos),
-        });
-        // Пока фото грузятся, показываем локальное превью.
-        setOrders((prev) => [{ ...remote, previewUri: localPreview }, ...prev.filter((o) => o.id !== remote.id)]);
-        const orderCfg = cfg;
-        const orderPhotos = photos;
-        void uploadOrderPhotos(remote.id, orderCfg, orderPhotos).then(({ ok, total, error }) => {
-          if (ok < total) {
-            showToast(`Загружено фото: ${ok} из ${total}${error ? ` — ${error}` : ""}`, "cloud-offline-outline");
-            console.warn(`[PicPac] Фото заказа ${remote.id}: загружено ${ok} из ${total}`, error);
-          }
-        });
-        resetAfterOrder(remote.id);
-        showToast(`Заказ ${remote.id} оформлен! Следите за статусом здесь`, "sparkles");
-        return;
-      } catch (e) {
-        // Ошибку проверки (промокод закончился, позиция скрыта) показываем как есть.
-        if (e instanceof ApiError && e.status > 0) {
-          showToast(e.message, "alert-circle-outline");
-          return;
-        }
-        showToast("Сервер недоступен — заказ сохранён только на телефоне", "cloud-offline-outline");
-      } finally {
-        setPlacingOrder(false);
-      }
-    }
-
-    const newOrder: MockOrder = {
-      id: `ord-${Math.floor(Math.random() * 9000 + 1000)}`, title: productTitle(cfg), scenario,
-      status: "accepted", statusIndex: 0, total: totalPrice, previewUri: localPreview, date: "Сегодня", items,
-    };
-    setOrders((prev) => [newOrder, ...prev]);
-    resetAfterOrder(newOrder.id);
-    if (!apiOnline) showToast("Заказ оформлен! Следите за статусом здесь", "sparkles");
+    showToast("Заказ оформлен! Следите за статусом здесь", "sparkles");
   };
 
   const advanceOrder = () =>
@@ -986,7 +740,7 @@ export function usePicPacController() {
 
   const panelTitle =
     panelContent === "products" ? "Что напечатать?" : panelContent === "settings" ? "Формат и оформление" : panelContent === "ai" ? "AI-студия" : "Фотографии и автомакет";
-  return { apiOnline, catalogVersion, placingOrder, promoPercent, promoError, autoSmartArrange, qualityChecking, qualityIssues, checkoutWarning, reviewCheckout, activeOrders, aiCost, aiCount, applyPhotoEdit, applyPrintToAll, arNotice, arOpen, arPhase, arPinchResponder, arPosterPos, arPosterSize, arRef, arTracking, autoArrange, autoArrangeByLocation, base, beginDrag, bookPage, cfg, checkoutPreviewOpen, chooseProductAfterUpload, chooseUploadedProduct, clearArAnchors, clearPhotos, clearSelectedSlot, deleteDraft, delivery, deliveryId, deliveryPrice, discount, dragPhoto, dropTargetId, editingPhoto, editorPanel, editorRatio, emptySlots, endDrag, filled, ghostPos, goToBuilder, handleArAnchors, handleArProjection, handleArTap, handleSlotPress, hexTarget, hexValid, hexValue, insets, isSaved, leaveBuilder, lockTrayScroll, lowRes, moveDrag, onTrayPick, openDraft, openPhotoEditor, openTextEditor, orders, panelContent, panelTitle, paymentId, photos, pickMore, placeOrder, postcardInteracting, posterAspect, price, promo, promoValid, recipient, registerSlot, removePhoto, removeSpread, replaceSlotFromGallery, saveDraft, scenarioTitle, screen, selectedOrder, selectedSlot, selectedSlotId, setArNotice, setArOpen, setArTracking, setBookPage, setCheckoutPreviewOpen, setDeliveryId, setEditingPhotoId, setEditorPanel, setHexTarget, setHexValue, setPaymentId, setPostcardInteracting, setPromo, setRecipient, setScenarioTitle, setScreen, setSelectedOrderId, setSpreadLayout, setSwapSlotId, setTextDraft, setTextEditing, showToast, slideDir, spreadIsEmpty, startFlow, swapSlotId, switchCategory, textDraft, textEditing, textField, toast, totalPrice, trayScrollLocked, unusedPhotos, updateCfg, updatePrintSlot, visibleDrafts, width };
+  return { autoSmartArrange, qualityChecking, qualityIssues, reviewCheckout, activeOrder, aiCost, aiCount, applyPhotoEdit, applyPrintToAll, arOpen, autoArrange, autoArrangeByLocation, base, beginDrag, bookPage, cfg, checkoutPreviewOpen, chooseProductAfterUpload, chooseUploadedProduct, clearPhotos, clearSelectedSlot, deleteDraft, delivery, deliveryId, deliveryPrice, discount, dragPhoto, dropTargetId, editingPhoto, editorPanel, editorRatio, emptySlots, endDrag, filled, ghostPos, goToBuilder, handleSlotPress, insets, isSaved, leaveBuilder, lockTrayScroll, lowRes, moveDrag, onTrayPick, openDraft, openPhotoEditor, openTextEditor, orders, panelContent, panelTitle, paymentId, photos, pickMore, placeOrder, postcardInteracting, posterAspect, price, promo, promoValid, recipient, registerSlot, removePhoto, removeSpread, replaceSlotFromGallery, saveDraft, scenarioTitle, screen, selectedOrder, selectedSlot, selectedSlotId, setArOpen, setBookPage, setCheckoutPreviewOpen, setDeliveryId, setEditingPhotoId, setEditorPanel, setPaymentId, setPostcardInteracting, setPromo, setRecipient, setScenarioTitle, setScreen, setSelectedOrderId, setSpreadLayout, setSwapSlotId, setTextDraft, setTextEditing, showToast, slideDir, spreadIsEmpty, startFlow, swapSlotId, switchCategory, textDraft, textEditing, textField, toast, totalPrice, trayScrollLocked, unusedPhotos, updateCfg, updatePrintSlot, visibleDrafts, width };
 }
 export type PicPacController = ReturnType<typeof usePicPacController>;
 

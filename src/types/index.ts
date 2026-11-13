@@ -14,8 +14,6 @@ export type BookTemplate = { id: string; name: string; description: string; titl
 export type MockOrder = {
   id: string; title: string; scenario: string; status: string; statusIndex: number;
   total: number; previewUri: string; date: string; items: string;
-  /** Заказ отменён менеджером (приходит с сервера). */
-  cancelled?: boolean;
 };
 
 export type ScenarioCard = { id: string; title: string; subtitle: string; productHint: "print" | "photobook" | "gift"; cover: string };
@@ -48,9 +46,10 @@ export type Panel = "products" | "settings" | "photos" | "ai";
 
 export type PhotoEdit = { rotation: number; crop?: { x: number; y: number; w: number; h: number } };
 export type PhotoQuality = { brightness: number; contrast: number; sharpness: number; clipped: number; score: number; issues: string[]; maxPrintWidthCm: number; maxPrintHeightCm: number };
-export type PhotoProcessingUpdate = { processingBaseUri?: string | null; width: number; height: number; quality?: PhotoQuality };
+export type PhotoRecipe = { sourceUri: string; effects: import('../features/smart-tools/pixels').LocalEffect[] };
+export type PhotoProcessingUpdate = { processingBaseUri?: string | null; width: number; height: number; quality?: PhotoQuality; recipe?: PhotoRecipe | null };
 
-export type Photo = { id: string; uri: string; originalUri?: string; processingBaseUri?: string; quality?: PhotoQuality; edit?: PhotoEdit; width?: number; height?: number; timestamp?: number; geo?: { lat: number; lng: number } };
+export type Photo = { id: string; uri: string; originalUri?: string; processingBaseUri?: string; recipe?: PhotoRecipe; quality?: PhotoQuality; edit?: PhotoEdit; width?: number; height?: number; timestamp?: number; geo?: { lat: number; lng: number } };
 
 export type PhotoSlot = { id: string; photoId?: string; printFinish?: PrintFinish; printFormatId?: string };
 

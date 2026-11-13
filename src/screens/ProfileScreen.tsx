@@ -5,14 +5,14 @@ import { ScreenHeader } from '../components/navigation/index';
 import { SectionTitle } from '../components/ui/index';
 import { ORDER_STATUSES } from '../config/catalog';
 import { DraftCard } from '../features/drafts/DraftCard';
-import { ActiveOrdersRow } from '../features/orders/ActiveOrdersRow';
+import { OrderTracker } from '../features/orders/OrderCards';
 import type { PicPacController } from '../state/usePicPacController';
 import { styles } from '../styles/app.styles';
 import { colors } from '../styles/theme';
 import { IconName } from '../types/index';
 
 export function ProfileScreen({ controller }: { controller: PicPacController }) {
-  const { activeOrders, deleteDraft, insets, openDraft, orders, setScreen, setSelectedOrderId, visibleDrafts } = controller;
+  const { deleteDraft, insets, openDraft, orders, setScreen, setSelectedOrderId, visibleDrafts } = controller;
 
   const inProgress = orders.filter((o) => o.statusIndex < ORDER_STATUSES.length - 1).length;
   const stats: { label: string; value: number; icon: IconName }[] = [
@@ -23,7 +23,7 @@ export function ProfileScreen({ controller }: { controller: PicPacController }) 
   return (
     <View style={styles.flex}>
       <ScreenHeader title="Профиль" />
-      <ScrollView contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 100 }]} showsVerticalScrollIndicator={false}>
+      <ScrollView contentContainerStyle={[styles.scrollContent, { paddingTop: 80, paddingBottom: insets.bottom + 100 }]} showsVerticalScrollIndicator={false}>
         <MotionView kind="section">
           <View style={styles.profileCard}>
             <View style={styles.profileAvatar}>
@@ -42,9 +42,16 @@ export function ProfileScreen({ controller }: { controller: PicPacController }) 
           </View>
         </MotionView>
 
-        {activeOrders.length > 0 ? (
+        {orders[0] ? (
           <MotionView kind="section" delay={100}>
-            <ActiveOrdersRow orders={activeOrders} onOpen={(id) => { setSelectedOrderId(id); setScreen("orders"); }} />
+            <SectionTitle title="Последний заказ" />
+            <OrderTracker order={orders[0]} onPress={() => { setSelectedOrderId(orders[0].id); setScreen("orders"); }} />
+            {/* {orders[0].statusIndex < ORDER_STATUSES.length - 1 ? (
+                <Pressable onPress={advanceOrder} style={styles.demoLink}>
+                  <Ionicons name="play-forward-outline" size={16} color={colors.accent} />
+                  <Text style={styles.linkText}>Показать следующий этап (демо)</Text>
+                </Pressable>
+              ) : null} */}
           </MotionView>
         ) : null}
 

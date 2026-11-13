@@ -1,3 +1,4 @@
+import { bookLeafCorners } from '../../../styles/bookSurface';
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -140,7 +141,7 @@ export function AnimatedBookPreview(props: FlatPreviewProps) {
                 <View renderToHardwareTextureAndroid shouldRasterizeIOS style={{ width: half, height: h }}>
                   <BookImageReadyScope scope={`leaf-${plan.front.page}-${plan.front.side}`} onReady={imageReady}><BookLeafSnapshot leaf={plan.front} cfg={turn.cfg} photos={turn.photos} width={half} height={h} /></BookImageReadyScope>
                 </View>
-                <Animated.View style={[styles.bookTurnShade, { opacity: shadowOpacity }]} />
+                <Animated.View testID="book-turn-front-shade" style={[styles.bookTurnShade, bookLeafCorners(plan.front.page === 0 ? 'cover' : plan.front.side), { opacity: shadowOpacity }]} />
               </Animated.View>
             ) : null}
             {plan?.back ? (
@@ -153,7 +154,7 @@ export function AnimatedBookPreview(props: FlatPreviewProps) {
                 <View renderToHardwareTextureAndroid shouldRasterizeIOS style={{ width: half, height: h }}>
                   <BookImageReadyScope scope={`leaf-${plan.back.page}-${plan.back.side}`} onReady={imageReady}><BookLeafSnapshot leaf={plan.back} cfg={turn.cfg} photos={turn.photos} width={half} height={h} /></BookImageReadyScope>
                 </View>
-                <Animated.View style={[styles.bookTurnShade, { opacity: shadowOpacity }]} />
+                <Animated.View testID="book-turn-back-shade" style={[styles.bookTurnShade, bookLeafCorners(plan.back.page === 0 ? 'cover' : plan.back.side), { opacity: shadowOpacity }]} />
               </Animated.View>
             ) : null}
           </Animated.View>

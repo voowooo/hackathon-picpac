@@ -1,6 +1,7 @@
+import { bookLeafCorners } from '../../../styles/bookSurface';
+import { BookPageDepth } from './BookPageDepth';
 import React from "react";
-import { Text, View } from "react-native";
-import { styles } from '../../../styles/app.styles';
+import { View } from "react-native";
 import { Photo, ProductConfig } from '../../../types/index';
 import type { BookLeaf } from "../turn";
 import { BookCoverFlat } from './BookCoverFlat';
@@ -16,11 +17,11 @@ export const BookLeafSnapshot = React.memo(function BookLeafSnapshot({ leaf, cfg
   );
   const geometry = { pad: 10, gap: 4, pageW: width - 10, pageH: height - 20 };
   return (
-    <View style={{ width, height, overflow: "hidden", backgroundColor: "#fffdfa" }}>
+    <View style={[{ width, height, overflow: "hidden", backgroundColor: "#fffdfa" }, bookLeafCorners(leaf.side)]}>
       <View style={{ position: "absolute", top: 0, left: leaf.side === "left" ? 0 : -width, width: width * 2, height }}>
         <SpreadPageHalf cfg={cfg} photos={photos} page={leaf.page} side={leaf.side} geometry={geometry} />
       </View>
-      <Text style={[styles.spreadNum, leaf.side === "left" ? { left: 12 } : { right: 12 }]}>{leaf.page * 2 + (leaf.side === "right" ? 1 : 0)}</Text>
+      <BookPageDepth side={leaf.side}/>
     </View>
   );
 });

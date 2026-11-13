@@ -12,7 +12,7 @@ export function OrdersScreen({ controller }: { controller: PicPacController }) {
   return (
     <View style={styles.flex}>
       <ScreenHeader title={selectedOrder ? "Заказ" : "Заказы"} onBack={selectedOrder ? () => setSelectedOrderId(null) : undefined} />
-      <ScrollView contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 100 }]} showsVerticalScrollIndicator={false}>
+      <ScrollView contentContainerStyle={[styles.scrollContent, { paddingTop: 80, paddingBottom: insets.bottom + 100 }]} showsVerticalScrollIndicator={false}>
         {selectedOrder ? (
           <>
             <MotionView kind="section">
@@ -34,9 +34,9 @@ export function OrdersScreen({ controller }: { controller: PicPacController }) {
           <>
             {(() => {
               // Активные: заказ ещё в пути (не достиг «Доставлен»).
-              const active = orders.filter((o) => !o.cancelled && o.statusIndex < ORDER_STATUSES.length - 1);
-              // История: завершённые (дошли до «Доставлен») и отменённые заказы.
-              const done = orders.filter((o) => o.cancelled || o.statusIndex >= ORDER_STATUSES.length - 1);
+              const active = orders.filter((o) => o.statusIndex < ORDER_STATUSES.length - 1);
+              // История: завершённые заказы (дошли до «Доставлен»).
+              const done = orders.filter((o) => o.statusIndex >= ORDER_STATUSES.length - 1);
               return (
                 <>
                   {active[0] ? (

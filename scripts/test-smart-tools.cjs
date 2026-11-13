@@ -1,6 +1,7 @@
 /* global __dirname */
 // No device or test framework needed: exercise the pixel and layout algorithms.
 const fs = require('node:fs');
+const { Buffer } = require('node:buffer');
 const assert = require('node:assert/strict');
 const path = require('node:path');
 const ts = require('typescript');
@@ -12,6 +13,7 @@ for (const extension of ['.png', '.jpg', '.jpeg']) require.extensions[extension]
 const root = path.join(__dirname, '..');
 const { applyLocalEffect, suggestCrop } = require(path.join(root, 'src/features/smart-tools/pixels.ts'));
 const { assessQuality } = require(path.join(root, 'src/features/smart-tools/quality.ts'));
+const { historyPush, historyMove } = require(path.join(root, 'src/features/photo-editor/history.ts'));
 const { makeSmartLayout } = require(path.join(root, 'src/features/smart-tools/layout.ts'));
 const { makeConfig, aiSurcharge, buildSlotIds } = require(path.join(root, 'src/domain/products.ts'));
 function image(w, h, pixel) {
@@ -22,7 +24,18 @@ function image(w, h, pixel) {
 let checks = 0;
 function check(condition, message) { assert.ok(condition, message); checks++; }
 (async () => {
+  let past = [], future = [], current = 'original';
+  for (const result of ['enhance', 'enhance+gray', 'gray']) { past = historyPush(past, current); current = result; future = []; }
+  let step = historyMove(past, future, current);
+  check(step.value === 'enhance+gray', 'Undo must restore the exact prior recipe');
+  past = step.from; future = step.to; current = step.value;
+  step = historyMove(future, past, current);
+  check(step.value === 'gray', 'Redo must restore a removed-effect result');
+  check(historyMove([], [], current) === null, 'History boundaries are safe');
+  check(historyPush(Array.from({length:20}, (_, i) => i), 20).length === 12, 'History memory is bounded');
   const dark = assessQuality(image(64, 64, () => [12, 12, 12, 255]), 400, 400);
+  const lifted = await applyLocalEffect(image(64, 64, () => [25, 35, 45, 255]), 'enhance');
+  check(assessQuality(lifted, 3000, 2000).brightness > 50, 'Auto enhancement must visibly lift underexposure');
   check(dark.issues.some(s => s.includes('тёмное')), 'Dark photo must be flagged');
   check(dark.issues.some(s => s.includes('пикселей')), 'Low resolution must be flagged');
   const bright = assessQuality(image(64, 64, () => [250, 250, 250, 255]), 3000, 2000);
@@ -45,6 +58,7 @@ function check(condition, message) { assert.ok(condition, message); checks++; }
   const cutout = await applyLocalEffect(object, 'background');
   check(cutout.data[3] === 0, 'Background must become transparent');
   check(cutout.data[(20 * 40 + 20) * 4 + 3] === 255, 'Object center must stay opaque');
+  assert.deepEqual((await applyLocalEffect(cutout, 'background')).data, cutout.data); checks++;
   const enclosed = image(40, 40, (x, y) => x >= 8 && x < 32 && y >= 8 && y < 32 && !(x >= 16 && x < 24 && y >= 16 && y < 24) ? [220, 20, 30, 255] : [255, 255, 255, 255]);
   const hole = await applyLocalEffect(enclosed, 'background');
   check(hole.data[(20 * 40 + 20) * 4 + 3] === 255, 'Only edge-connected background is removed');
@@ -71,7 +85,66 @@ function check(condition, message) { assert.ok(condition, message); checks++; }
     }
   }
   const { encode, decode } = await import('fast-png');
+  const { decodePhotoPng } = require(path.join(root, 'src/features/smart-tools/png.ts'));
+  for (const depth of [1, 2, 4]) {
+    const bits = encode({ width: 2, height: 1, channels: 1, depth, data: new Uint8Array([((1 << depth) - 1) << (8 - depth)]) });
+    const expanded = decodePhotoPng(bits);
+    check(expanded.data[0] === 255 && expanded.data[4] === 0, `${depth}-bit monochrome PNG is expanded correctly`);
+  }
+  const gray16 = decodePhotoPng(encode({ width: 2, height: 1, channels: 1, depth: 16, data: new Uint16Array([65535, 32768]) }));
+  check(gray16.data[0] === 255 && gray16.data[4] === 128, '16-bit grayscale uses the full range');
+  const indexed = decodePhotoPng(encode({ width: 2, height: 1, channels: 1, depth: 8, data: new Uint8Array([0, 1]), palette: [[255, 0, 0, 0], [0, 0, 255, 255]] }));
+  check(indexed.data[0] === 255 && indexed.data[3] === 0 && indexed.data[7] === 255, 'Palette PNG retains color and transparency');
   const png = decode(encode({ ...cutout, channels: 4, depth: 8 }));
   assert.deepEqual(new Uint8Array(png.data), cutout.data); checks++;
+  const { createPngWriter, photoBands } = require(path.join(root, 'src/features/smart-tools/streaming-png.ts'));
+  const { applyBackgroundMask } = require(path.join(root, 'src/features/smart-tools/mask.ts'));
+  const full = image(31, 777, (x, y) => [(x * 19 + y) % 256, (y * 3) % 256, (y + x * 7) % 256, (x + y) % 256]);
+  const buffers = [], writer = createPngWriter(full.width, full.height, bytes => buffers.push(bytes));
+  const bands = [...photoBands(full.width, full.height)];
+  let covered = 0;
+  for (const band of bands) {
+    check(band.y === covered && band.top <= band.y && band.top + band.height >= band.y + band.count, 'Band coverage is continuous with a valid halo');
+    writer.push(full.data.subarray(band.y * full.width * 4, (band.y + band.count) * full.width * 4)); covered += band.count;
+  }
+  check(covered === full.height, 'Bands include the final partial band');
+  const stream = decode(Buffer.concat(buffers), { checkCrc: true });
+  assert.deepEqual(new Uint8Array(stream.data), full.data); checks++;
+  check(stream.width === full.width && stream.height === full.height, 'Streaming PNG retains full resolution and alpha');
+  const recipe = ['enhance', 'sharpen', 'blur', 'bright'];
+  const references = [];
+  let reference = full;
+  for (const effect of recipe) { references.push(reference); reference = await applyLocalEffect(reference, effect, { reference, longestSide: 4000 }); }
+  const expected = reference, assembled = new Uint8Array(full.data.length);
+  for (const band of bands) {
+    let pixels = { width: full.width, height: band.height, data: full.data.slice(band.top * full.width * 4, (band.top + band.height) * full.width * 4) };
+    for (let i = 0; i < recipe.length; i++) pixels = await applyLocalEffect(pixels, recipe[i], { reference: references[i], longestSide: 4000 });
+    assembled.set(pixels.data.subarray((band.y - band.top) * full.width * 4, (band.y - band.top + band.count) * full.width * 4), band.y * full.width * 4);
+  }
+  assert.deepEqual(assembled, expected.data, 'Band processing must match the whole-image recipe without seams'); checks++;
+  const smallMask = image(2, 2, (x, y) => [0, 0, 0, x === y ? 255 : 0]);
+  const high = image(4, 4, (x, y) => [120 + x, 80 + y, 40, 128]);
+  const masked = applyBackgroundMask(high, smallMask, 4, 4);
+  check(masked.data.every((v, i) => i % 4 === 3 ? v <= 128 : v === high.data[i]), 'Mask keeps original detail and does not increase alpha');
+  const upper = applyBackgroundMask({ width: 4, height: 2, data: high.data.slice(0, 32) }, smallMask, 4, 4, 0);
+  const lower = applyBackgroundMask({ width: 4, height: 2, data: high.data.slice(32) }, smallMask, 4, 4, 2);
+  assert.deepEqual(Buffer.concat([upper.data, lower.data]), Buffer.from(masked.data), 'Mask interpolation uses global coordinates'); checks++;
+  assert.throws(() => createPngWriter(0, 1, () => {})); checks++;
+  const {hsvToHex,hexToHsv,wheelColor}=require(path.join(root,'src/components/color-picker/color.ts'));
+  for(const [hex,h,sat,v] of [['#FF0000',0,1,1],['#00FF00',120,1,1],['#0000FF',240,1,1],['#FFFFFF',0,0,1],['#000000',0,0,0]]) {
+    const hsv=hexToHsv(hex);
+    check(Math.abs(hsv.h-h)<1e-7&&Math.abs(hsv.s-sat)<1e-7&&Math.abs(hsv.v-v)<1e-7,'Primary/neutral colors map to HSV correctly');
+    check(hsvToHex(hsv)===hex,'Picker round-trips primary/neutral colors');
+  }
+  for(const hex of ['#A47B29','#17CCD3','#D09AB1','#123456','#808080']) check(hsvToHex(hexToHsv(hex))===hex,'Custom color retains exact RGB bytes');
+  check(hsvToHex({h:360,s:1,v:1})==='#FF0000','Hue wraps continuously');
+  check(wheelColor(130,130,260).s===0,'Wheel center selects a neutral color');
+  check(wheelColor(1000,130,260).s===1,'Dragging outside the wheel clamps saturation');
+  check(Math.abs(wheelColor(130,248,260).h-90)<1e-7,'Wheel touch coordinates follow the drawn hue');
+  const defaultBook=makeConfig('photobook',[]);
+  check(defaultBook.bookFormat==='21×30','New photobooks default to the portrait 21×30 format');
+  const startPrint=makeConfig('print',[]);
+  check(makeConfig('photobook',[],startPrint).bookFormat==='21×30','Upload-first flow preserves the recommended book format');
+  check(makeConfig('photobook',[],{...defaultBook,bookFormat:'20×20'}).bookFormat==='20×20','Existing user-selected book sizes are preserved');
   console.log(`Smart tools: ${checks} checks passed`);
 })().catch(error => { console.error(error); process.exitCode = 1; });

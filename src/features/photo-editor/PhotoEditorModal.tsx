@@ -1,25 +1,28 @@
 import { Ionicons } from "@expo/vector-icons";
-import { BlurView } from "expo-blur";
 import type { Action } from "expo-image-manipulator";
 import { manipulateAsync, SaveFormat } from "expo-image-manipulator";
 import { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Animated, Easing, Modal, PanResponder, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { PhotoMenuTransition } from '../../components/animation/PhotoMenuTransition';
 import { styles } from '../../styles/app.styles';
 import { colors } from '../../styles/theme';
 import { IconName, Photo, PhotoEdit, PhotoProcessingUpdate, PhotoQuality } from '../../types/index';
-import { analyzePhoto, findSmartCrop, prepareEditorWorkingImage, processLocalPhoto } from '../smart-tools/service';
+import { analyzePhoto, clearProcessingCache, findSmartCrop, prepareEditorWorkingImage, processPhotoRecipe, resolveImageSize } from '../smart-tools/service';
 import type { LocalEffect } from '../smart-tools/pixels';
 import { SmartToolsPanel } from '../smart-tools/SmartToolsPanel';
 import { clamp } from '../../utils/format';
 import { cropToPixels, fitCropToAspect, normalizedToDisplayCrop } from "./crop";
+import { historyMove, historyPush } from './history';
+import { editorStyles as ui } from './editor.styles';
+import { PhotoProcessingOverlay } from './PhotoProcessingOverlay';
+import { TransitionPhoto } from './TransitionPhoto';
 
-type Source = { uri: string; w: number; h: number };
-type UndoState = { src: Source; base: string | null | undefined; rotate: number; crop: { x: number; y: number; w: number; h: number }; quality?: PhotoQuality };
+type Source = { uri: string; w: number; h: number; fullUri?: string };
+type Crop = { x: number; y: number; w: number; h: number };
+type UndoState = { src: Source; origin: Source; base: string | null | undefined; rotate: number; crop: Crop; quality?: PhotoQuality; effects: LocalEffect[]; autoCrop: Crop | null };
 
 export function PhotoEditorModal({
-  photo, targetRatio, onClose, onApply, toast: notifyApp,
+  photo, targetRatio, onClose, onApply,
 }: {
   photo?: Photo | null; onClose: () => void;
   targetRatio: number;
@@ -29,13 +32,13 @@ export function PhotoEditorModal({
   const { width, height } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const boxW = Math.min(width - 48, 420);
-  const boxH = Math.round(Math.min(boxW * 1.15, height * .40));
+  const boxH = Math.round(Math.min(boxW * 1.15, height * .34));
   const [rotate, setRotate] = useState(0);
   const [mode, setMode] = useState<"view" | "crop">("view");
   const [src, setSrc] = useState<{ uri: string; w: number; h: number } | null>(null);
   const [busy, setBusy] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
-  const toast = (text: string, icon?: IconName) => { setFeedback(text); notifyApp(text, icon); };
+  const toast = (text: string, _icon?: IconName) => setFeedback(text);
   useEffect(() => {
     if (!feedback) return;
     const timer = setTimeout(() => setFeedback(null), 6000);
@@ -44,9 +47,16 @@ export function PhotoEditorModal({
   const processing = useRef(false);
   const [workingBase, setWorkingBase] = useState<string | null | undefined>();
   const [quality, setQuality] = useState<PhotoQuality>();
-  const [lightweight, setLightweight] = useState(false);
-  const [previewKey, setPreviewKey] = useState(0);
+  const [effects, setEffects] = useState<LocalEffect[]>([]);
+  const [autoCrop, setAutoCrop] = useState<Crop | null>(null);
+  const effectBase = useRef<Source | null>(null);
+  const recipeCache = useRef(new Map<string, Source>());
+  const [compare, setCompare] = useState(false);
+  const [compareUri, setCompareUri] = useState<string>();
+  const [saveProgress, setSaveProgress] = useState<number | null>(null);
   const [history, setHistory] = useState<UndoState[]>([]);
+  const [future, setFuture] = useState<UndoState[]>([]);
+  const cropStart = useRef<UndoState | null>(null);
   const pendingCrop = useRef<UndoState | null>(null);
   const [rotating, setRotating] = useState(false);
   const [entrance] = useState(() => new Animated.Value(0));
@@ -88,8 +98,10 @@ export function PhotoEditorModal({
   useEffect(() => {
     let cancelled = false;
     if (photo) {
+      clearProcessingCache();
       setRotate(photo.edit?.rotation ?? 0); setMode("view"); setSrc(null); setBusy(false); setRotating(false);
-      setWorkingBase(undefined); setQuality(photo.quality); setLightweight(false); setHistory([]); setFeedback(null); processing.current = false; pendingCrop.current = null;
+      setWorkingBase(undefined); setQuality(photo.quality); setHistory([]); setFuture([]); setEffects([]); setAutoCrop(null); setFeedback(null); setCompare(false); setSaveProgress(null); processing.current = false; pendingCrop.current = null;
+      effectBase.current = null; recipeCache.current.clear();
       setCrop({ x: 0, y: 0, w: 0, h: 0 });
       rotAnim.setValue(photo.edit?.rotation ?? 0);
       scaleAnim.setValue(1);
@@ -103,19 +115,20 @@ export function PhotoEditorModal({
         photo.width,
         photo.height,
       )
-        .then((image) => {
+        .then(async (image) => {
+          const baselineUri = photo.recipe?.sourceUri ?? photo.processingBaseUri ?? photo.originalUri ?? photo.uri;
+          const baseline = photo.recipe ? await prepareEditorWorkingImage(baselineUri) : image;
           if (!cancelled) {
-            const origPixels = (photo.width ?? image.width) * (photo.height ?? image.height);
-            setLightweight(origPixels > 8_000_000);
-            setPreviewKey(k => k + 1);
-            setSrc({ uri: image.uri, w: image.width, h: image.height });
+            effectBase.current = { uri: baseline.uri, w: baseline.width, h: baseline.height, fullUri: baselineUri };
+            setCompareUri(baseline.uri); setEffects(photo.recipe?.effects ?? []);
+                setSrc({ uri: image.uri, w: image.width, h: image.height });
           }
         })
         .catch(() => {
           if (!cancelled) toast("Не удалось открыть фото", "warning-outline");
         });
     }
-    return () => { cancelled = true; };
+    return () => { cancelled = true; clearProcessingCache(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [photo?.id]);
 
@@ -123,7 +136,7 @@ export function PhotoEditorModal({
     if (closing.current || busy) return;
     closing.current = true;
     Animated.timing(entrance, { toValue: 0, duration: 240, easing: Easing.in(Easing.cubic), useNativeDriver: true }).start(({ finished }) => {
-      if (finished) onClose();
+      if (finished) { clearProcessingCache(); onClose(); }
     });
   };
 
@@ -182,6 +195,7 @@ export function PhotoEditorModal({
 
   const doRotate = () => {
     if (!src || rotating || busy) return;
+    remember(); setAutoCrop(null);
     const next = (rot + 90) % 360;
     setRotating(true);
     setRotate((value) => value + 90);
@@ -198,6 +212,7 @@ export function PhotoEditorModal({
       onStartShouldSetPanResponder: () => true,
       onMoveShouldSetPanResponder: () => true,
       onPanResponderGrant: (e) => {
+        setAutoCrop(null);
         const { locationX, locationY } = e.nativeEvent;
         const c = cropRef.current;
         // Тап у правого нижнего угла рамки — изменение размера, внутри — перенос.
@@ -245,65 +260,69 @@ export function PhotoEditorModal({
     }),
   );
 
-  const renderCurrent = async () => {
+  const renderCurrent = async (input: Source = src!) => {
     if (!src || !nat || crop.w <= 0 || crop.h <= 0) throw new Error('Фото ещё не готово');
     const actions: Action[] = [];
     if (rot) actions.push({ rotate: rot });
-    const pixels = cropToPixels(crop, { w: dispW, h: dispH }, nat);
+    const fullNat = quarter ? { w: input.h, h: input.w } : input;
+    const pixels = cropToPixels(crop, { w: dispW, h: dispH }, fullNat);
     actions.push({ crop: pixels });
-    return manipulateAsync(src.uri, actions, { compress: 1, format: SaveFormat.PNG });
+    return manipulateAsync(input.uri, actions, { compress: 1, format: SaveFormat.PNG });
   };
 
+  const snapshot = (): UndoState | null => src && effectBase.current ? { src, origin: effectBase.current, base: workingBase, rotate, crop, quality, effects, autoCrop } : null;
   const remember = () => {
-    if (src) setHistory(prev => [...prev.slice(-2), { src, base: workingBase, rotate, crop, quality }]);
+    const current = snapshot();
+    if (current) { setHistory(prev => historyPush(prev, current)); setFuture([]); }
   };
   const runTool = async (tool: LocalEffect | 'crop') => {
     if (!src || !nat || busy || rotating || processing.current) return;
     processing.current = true; setBusy(true);
     try {
       if (tool === 'crop') {
+        if (autoCrop) { remember(); setCrop(autoCrop); setAutoCrop(null); return; }
         const suggested = await findSmartCrop(src.uri, src.w, src.h, ratio, rot);
         const proposed = fitCropToAspect(normalizedToDisplayCrop(suggested, dispW, dispH), ratio);
         const similar = Math.hypot(proposed.x - crop.x, proposed.y - crop.y) < 6
           && Math.hypot(proposed.w - crop.w, proposed.h - crop.h) < 6;
-        remember();
-        if (!similar) setCrop(proposed);
-        setMode('crop');
+        if (!similar) { remember(); setAutoCrop(crop); setCrop(proposed); }
+        else { cropStart.current = snapshot(); setMode('crop'); }
       } else {
-        // Process the full rotated source, keeping the editable area outside the
-        // crop. Only the final OK bakes the crop into the print image.
-        const result = await processLocalPhoto(src.uri, src.w, src.h, tool, lightweight, rot);
-        if (result.mocked) { toast('Демо-режим: фото оставлено без изменений', 'information-circle-outline'); return; }
-        const measured = await analyzePhoto(result).catch(() => undefined);
+        const origin = effectBase.current;
+        if (!origin) return;
+        const nextEffects = effects.includes(tool) ? effects.filter(effect => effect !== tool) : [...effects, tool];
+        const key = origin.uri + ':' + nextEffects.join(',');
+        let result = nextEffects.length ? recipeCache.current.get(key) : origin;
+        if (!result) {
+          const processed = await processPhotoRecipe(origin.uri, origin.w, origin.h, nextEffects);
+          result = { uri: processed.uri, w: processed.width, h: processed.height };
+          recipeCache.current.set(key, result);
+          if (recipeCache.current.size > 16) recipeCache.current.delete(recipeCache.current.keys().next().value!);
+        }
         remember();
-        const oldDispW = dispW, oldDispH = dispH;
-        const nextK = Math.min(boxW / result.width, boxH / result.height);
-        const nextDispW = result.width * nextK, nextDispH = result.height * nextK;
-        const nextCrop = oldDispW > 0 && oldDispH > 0
-          ? {
-            x: crop.x * nextDispW / oldDispW,
-            y: crop.y * nextDispH / oldDispH,
-            w: crop.w * nextDispW / oldDispW,
-            h: crop.h * nextDispH / oldDispH,
-          }
-          : crop;
-        pendingCrop.current = { src: { uri: src.uri, w: src.w, h: src.h }, base: workingBase, rotate: 0, crop: nextCrop, quality: measured };
-        setWorkingBase(result.uri); setRotate(0); rotAnim.setValue(0); scaleAnim.setValue(1);
-        setPreviewKey(k => k + 1);
-        setSrc({ uri: result.uri, w: result.width, h: result.height }); setQuality(measured);
-        if (result.downscaled && lightweight) setLightweight(true);
+        const current = snapshot()!;
+        pendingCrop.current = { ...current, crop };
+        setWorkingBase(result.uri); setEffects(nextEffects);
+        setSrc({ ...result }); setFeedback(null);
       }
-    } catch {
-      toast('Не получилось применить эффект — попробуйте ещё раз или отмените последний шаг', 'warning-outline');
+    } catch (error) {
+      setFeedback(tool === 'background' && error instanceof Error ? error.message : 'Не удалось обработать фото. Предыдущий результат сохранён.');
     } finally { processing.current = false; setBusy(false); }
   };
-  const undo = () => {
-    const previous = history[history.length - 1];
-    if (!previous || busy) return;
+  const restore = (previous: UndoState) => {
     pendingCrop.current = previous;
-    setPreviewKey(k => k + 1);
+    effectBase.current = previous.origin; setCompareUri(previous.origin.uri);
     setSrc({ ...previous.src }); setWorkingBase(previous.base); setRotate(previous.rotate);
-    setCrop(previous.crop); setQuality(previous.quality); setHistory(prev => prev.slice(0, -1));
+    setCrop(previous.crop); setQuality(previous.quality); setEffects(previous.effects); setAutoCrop(previous.autoCrop); setFeedback(null);
+  };
+  const moveHistory = (forward: boolean) => {
+    const current = snapshot();
+    if (!current || busy || rotating) return;
+    const moved = historyMove(forward ? future : history, forward ? history : future, current);
+    if (!moved) return;
+    if (forward) { setFuture(moved.from); setHistory(moved.to); }
+    else { setHistory(moved.from); setFuture(moved.to); }
+    restore(moved.value);
   };
   const resetOriginal = async () => {
     if (!photo || busy || processing.current) return;
@@ -311,56 +330,69 @@ export function PhotoEditorModal({
     try {
       const result = await prepareEditorWorkingImage(photo.originalUri ?? photo.uri, photo.width, photo.height);
       const measured = await analyzePhoto(result).catch(() => undefined);
-      remember(); setWorkingBase(null); setRotate(0); setPreviewKey(k => k + 1);
+      remember(); setWorkingBase(null); setRotate(0);
+      effectBase.current = { uri: result.uri, w: result.width, h: result.height, fullUri: photo.originalUri ?? photo.uri }; setCompareUri(result.uri); setEffects([]); setAutoCrop(null);
       setSrc({ uri: result.uri, w: result.width, h: result.height }); setQuality(measured);
     } catch { toast('Не удалось открыть оригинал', 'warning-outline'); }
     finally { processing.current = false; setBusy(false); }
   };
 
   const save = async () => {
-    if (!photo || !src || !nat || busy || rotating || crop.w <= 0 || crop.h <= 0) return;
-    setBusy(true);
+    if (!photo || !src || !nat || busy || processing.current || rotating || crop.w <= 0 || crop.h <= 0) return;
+    processing.current = true; setBusy(true); setSaveProgress(0); setFeedback(null);
     try {
-      const pixels = cropToPixels(crop, { w: dispW, h: dispH }, nat);
-      const result = await renderCurrent();
+      const original = effectBase.current;
+      if (!original) return;
+      const sourceUri = original.fullUri ?? original.uri;
+      const dimensions = await resolveImageSize(sourceUri);
+      clearProcessingCache();
+      const fullBase = effects.length
+        ? await processPhotoRecipe(sourceUri, dimensions.width, dimensions.height, effects, Infinity, progress => setSaveProgress(Math.round(progress * 90)))
+        : { uri: sourceUri, ...dimensions };
+      const output = { uri: fullBase.uri, w: fullBase.width, h: fullBase.height };
+      const outputNat = quarter ? { w: output.h, h: output.w } : output;
+      const pixels = cropToPixels(crop, { w: dispW, h: dispH }, outputNat);
+      setSaveProgress(94);
+      const result = await renderCurrent(output);
       const measured = await analyzePhoto(result).catch(() => undefined);
-      onApply(photo.id, result.uri, { rotation: rot, crop: { x: pixels.originX / nat.w, y: pixels.originY / nat.h, w: pixels.width / nat.w, h: pixels.height / nat.h } }, { processingBaseUri: workingBase, width: result.width, height: result.height, quality: measured });
-      toast("Фото обновлено");
-      onClose();
+      onApply(photo.id, result.uri, { rotation: rot, crop: { x: pixels.originX / outputNat.w, y: pixels.originY / outputNat.h, w: pixels.width / outputNat.w, h: pixels.height / outputNat.h } }, { processingBaseUri: fullBase.uri, width: result.width, height: result.height, quality: measured, recipe: effects.length ? { sourceUri, effects } : null });
+      clearProcessingCache(); onClose();
     } catch {
       toast("Не удалось изменить фото", "warning-outline");
     } finally {
-      setBusy(false);
+      processing.current = false; setBusy(false); setSaveProgress(null);
     }
+  };
+
+  const finishCrop = () => {
+    const initial = cropStart.current;
+    const current = snapshot();
+    if (initial && current && JSON.stringify(initial.crop) !== JSON.stringify(crop)) {
+      setHistory(prev => historyPush(prev, initial)); setFuture([]);
+    }
+    cropStart.current = null; setMode('view');
   };
 
   return (
     <Modal visible={!!photo} transparent animationType="none" statusBarTranslucent onRequestClose={closeEditor}>
-      <Animated.View style={[styles.peScreen, { opacity: entrance, paddingTop: insets.top + 12, paddingBottom: insets.bottom + 12 }]}>
-        {/* Фон: размытие того, что за редактором + затемняющий слой для контраста */}
-        <BlurView intensity={60} tint="dark" style={StyleSheet.absoluteFill} pointerEvents="none" />
-        <View style={[StyleSheet.absoluteFill, styles.peBackdrop]} pointerEvents="none" />
-        <Animated.View style={[styles.peTop, { transform: [{ translateY: entrance.interpolate({ inputRange: [0, 1], outputRange: [12, 0] }) }] }]}>
-          <Pressable onPress={closeEditor} hitSlop={10} accessibilityRole="button" accessibilityLabel="Закрыть редактор фото">
-            <Ionicons name="close" size={26} color="#fff" />
-          </Pressable>
-          <Text style={styles.peTitle}>Редактор фото</Text>
-          <View style={{ width: 26 }} />
-        </Animated.View>
-
+      <Animated.View style={[styles.peScreen, ui.screen, { opacity: entrance, paddingTop: insets.top + 8, paddingBottom: insets.bottom + 8 }]}>
+        <View style={ui.header}>
+          <Pressable style={ui.icon} onPress={closeEditor} disabled={busy} accessibilityRole="button" accessibilityLabel="Закрыть редактор фото"><Ionicons name="close" size={23} color="#364C49" /></Pressable>
+          <Text style={[styles.peTitle, ui.title]}>Редактор фото</Text>
+          <Pressable style={[ui.done, (!src || busy || rotating) && ui.disabled]} onPress={() => void save()} disabled={!src || busy || rotating} accessibilityRole="button" accessibilityLabel="Сохранить фото"><Text style={ui.doneText}>{saveProgress !== null ? 'Сохраняем…' : 'Готово'}</Text></Pressable>
+        </View>
+        <View style={ui.stage}>
         <View style={[styles.peBox, { width: boxW, height: boxH }]}>
           {photo ? (
             src ? (
               <Animated.View style={{ width: geometry.w, height: geometry.h, alignItems: "center", justifyContent: "center" }}>
                 {/* Размер исходника постоянен, поворот и масштаб анимируются вместе. */}
-                <Animated.Image
-                  key={`${src.uri}-${previewKey}`}
-                  source={{ uri: src.uri }}
+                <TransitionPhoto
+                  uri={src.uri} originalUri={compareUri} comparing={compare}
                   style={{ width: src.w * baseK, height: src.h * baseK, transform: [{ rotate: rotAnim.interpolate({ inputRange: [0, 360], outputRange: ["0deg", "360deg"] }) }, { scale: scaleAnim }] }}
-                  resizeMode="cover"
                 />
-                {crop.w > 0 ? (
-                  <View style={StyleSheet.absoluteFill} pointerEvents={mode === "crop" && !rotating ? "auto" : "none"} {...cropPan.panHandlers}>
+                {crop.w > 0 && !compare ? (
+                  <View style={StyleSheet.absoluteFill} pointerEvents={mode === "crop" && !rotating && !busy ? "auto" : "none"} {...cropPan.panHandlers}>
                     {/* Дети — pointerEvents none: касания всегда считает сама рамка-слой,
                         иначе locationX «прыгает» при попадании на белый прямоугольник */}
                     <View pointerEvents="none" style={StyleSheet.absoluteFill}>
@@ -374,53 +406,37 @@ export function PhotoEditorModal({
                     </View>
                   </View>
                 ) : null}
+                <PhotoProcessingOverlay active={busy} />
               </Animated.View>
             ) : (
-              <ActivityIndicator color={colors.bg} size="large" />
+              <ActivityIndicator color={colors.accent} size="large" />
             )
           ) : null}
-          {busy ? <ActivityIndicator style={StyleSheet.absoluteFill} color="#fff" size="large" /> : null}
         </View>
 
+        </View>
+        <View style={ui.history}>
+          <Pressable style={[ui.icon, (!history.length || busy || rotating) && ui.disabled]} accessibilityRole="button" accessibilityLabel="Предыдущий результат" disabled={!history.length || busy || rotating} onPress={() => moveHistory(false)}><Ionicons name="arrow-back" size={21} color="#364C49" /></Pressable>
+          <Pressable style={[ui.icon, (!future.length || busy || rotating) && ui.disabled]} accessibilityRole="button" accessibilityLabel="Следующий результат" disabled={!future.length || busy || rotating} onPress={() => moveHistory(true)}><Ionicons name="arrow-forward" size={21} color="#364C49" /></Pressable>
+          <Text style={ui.historyText}>{saveProgress !== null ? `Сохранение ${saveProgress}%` : busy ? 'Обработка…' : `${history.length + 1} / ${history.length + future.length + 1}`}</Text>
+          <Pressable style={ui.compare} accessibilityRole="button" accessibilityLabel="Исходник" accessibilityHint="Удерживайте для сравнения с исходным фото" disabled={!src || busy} onPressIn={() => setCompare(true)} onPressOut={() => setCompare(false)}><Text style={ui.compareText}>Исходник</Text></Pressable>
+        </View>
         <ScrollView style={{ flex: 1, width: '100%', maxWidth: 520, alignSelf: 'center' }} contentContainerStyle={{ paddingBottom: 16 }} showsVerticalScrollIndicator={false}>
-        {(busy || feedback) && <Text accessibilityLiveRegion="polite" style={[styles.peHint, { marginTop: 8 }]}>{busy ? 'Обрабатываем на устройстве…' : feedback}</Text>}
-        {photo ? (
-          mode === "crop" ? (
-            <PhotoMenuTransition key="crop" style={styles.peControls}>
-              <Text style={styles.peHint}>Перемещайте рамку. Красный маркер меняет размер с сохранением пропорций.</Text>
-              <View style={styles.peRow}>
-                <Pressable style={styles.peBtn} onPress={() => setMode("view")} hitSlop={6} accessibilityRole="button">
-                  <Ionicons name="close" size={18} color="#fff" />
-                  <Text style={styles.peBtnText}>Отмена</Text>
-                </Pressable>
-                <Pressable style={[styles.peBtn, styles.peBtnPrimary]} onPress={() => void save()} disabled={busy} hitSlop={6} accessibilityRole="button">
-                  <Ionicons name="checkmark" size={18} color="#fff" />
-                  <Text style={styles.peBtnText}>Обрезать</Text>
-                </Pressable>
-              </View>
-            </PhotoMenuTransition>
-          ) : (
-            <PhotoMenuTransition key="view" style={styles.peControls}>
-              <View style={styles.peRow}>
-                <Pressable style={styles.peBtn} disabled={!src || rotating || busy} onPress={doRotate} hitSlop={6} accessibilityRole="button" accessibilityLabel="Повернуть на 90 градусов">
-                  <Ionicons name="refresh-outline" size={18} color="#fff" />
-                  <Text style={styles.peBtnText}>Повернуть</Text>
-                </Pressable>
-                <Pressable style={styles.peBtn} disabled={!src || rotating || busy} onPress={() => setMode("crop")} hitSlop={6} accessibilityRole="button" accessibilityLabel="Обрезать фото">
-                  <Ionicons name="crop-outline" size={18} color="#fff" />
-                  <Text style={styles.peBtnText}>Обрезать</Text>
-                </Pressable>
-                {src ? (
-                  <Pressable style={[styles.peBtn, styles.peBtnPrimary]} onPress={() => void save()} disabled={busy || rotating} hitSlop={6} accessibilityRole="button" accessibilityLabel="Сохранить фото">
-                    <Ionicons name="checkmark" size={18} color="#fff" />
-                    <Text style={styles.peBtnText}>ОК</Text>
-                  </Pressable>
-                ) : null}
-              </View>
-              <SmartToolsPanel quality={quality ?? photo.quality} disabled={!src || busy || rotating} canUndo={history.length > 0} onTool={tool => void runTool(tool)} onUndo={undo} onReset={() => void resetOriginal()} large={!!src && src.w * src.h > 8_000_000} lightweight={lightweight} onLightweight={() => setLightweight(value => !value)} />
-            </PhotoMenuTransition>
-          )
-        ) : null}
+          {feedback && <Text accessibilityLiveRegion="polite" style={ui.error}>{feedback}</Text>}
+          {mode === 'crop' ? <View>
+            <Text style={ui.hint}>Передвиньте рамку или потяните за красный маркер. Пропорции печати сохраняются.</Text>
+            <View style={ui.adjustments}>
+              <Pressable style={ui.adjustment} accessibilityRole="button" onPress={() => { if (cropStart.current) restore(cropStart.current); cropStart.current = null; setMode('view'); }}><Text style={ui.adjustmentText}>Отмена</Text></Pressable>
+              <Pressable style={ui.cropButton} accessibilityRole="button" onPress={finishCrop}><Text style={ui.doneText}>Применить кадр</Text></Pressable>
+            </View>
+          </View> : <View>
+            <View style={ui.adjustments}>
+              <Pressable style={ui.adjustment} disabled={!src || busy || rotating} accessibilityRole="button" accessibilityLabel="Повернуть на 90 градусов" onPress={doRotate}><Ionicons name="refresh-outline" size={17} color="#364C49" /><Text style={ui.adjustmentText}>Поворот</Text></Pressable>
+              <Pressable style={ui.adjustment} disabled={!src || busy || rotating} accessibilityRole="button" accessibilityLabel="Обрезать фото" onPress={() => { cropStart.current = snapshot(); setMode('crop'); }}><Ionicons name="crop-outline" size={17} color="#364C49" /><Text style={ui.adjustmentText}>Кадр</Text></Pressable>
+              <Pressable style={ui.adjustment} disabled={!src || busy || rotating} accessibilityRole="button" accessibilityLabel="Вернуть оригинал" onPress={() => void resetOriginal()}><Ionicons name="refresh-circle-outline" size={17} color="#364C49" /><Text style={ui.adjustmentText}>Сброс</Text></Pressable>
+            </View>
+            <SmartToolsPanel disabled={!src || busy || rotating} active={[...effects, ...(autoCrop ? ['crop'] : [])]} onTool={tool => void runTool(tool)} />
+          </View>}
         </ScrollView>
       </Animated.View>
     </Modal>

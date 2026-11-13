@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { StatusBar } from "expo-status-bar";
-import { Animated, Image, Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Animated, Image, Pressable, ScrollView, Text, View } from "react-native";
 import { MotionView } from '../components/animation/MotionView';
 import { ScalePressable } from '../components/animation/ScalePressable';
 import { Toast } from '../components/feedback/index';
@@ -14,14 +14,14 @@ import { PosterARView } from '../features/ar/PosterARView';
 import { AIStudioPanel } from '../features/editor/panels/AIStudioPanel';
 import { SettingsPanel } from '../features/editor/panels/SettingsPanel';
 import { PhotoEditorModal } from '../features/photo-editor/PhotoEditorModal';
-import { ExpoAr, arCapabilities } from '../services/ar';
+import { getPrintFinish } from '../domain/products';
 import { usePicPac } from '../state/PicPacProvider';
 import { styles } from '../styles/app.styles';
 import { PASTELS, PASTEL_INK, colors, spacing } from '../styles/theme';
 
 export function PicPacShell({ children }: { children: React.ReactNode }) {
   const controller = usePicPac();
-  const { applyPhotoEdit, arNotice, arOpen, arPhase, arPinchResponder, arPosterPos, arPosterSize, arRef, arTracking, autoArrange, autoArrangeByLocation, cfg, clearArAnchors, dragPhoto, editingPhoto, editorPanel, editorRatio, ghostPos, handleArAnchors, handleArProjection, handleArTap, insets, panelContent, panelTitle, photos, pickMore, posterAspect, screen, setArNotice, setArOpen, setArTracking, setEditingPhotoId, setEditorPanel, setScenarioTitle, setScreen, setSelectedOrderId, setTextDraft, setTextEditing, showToast, slideDir, startFlow, switchCategory, textDraft, textEditing, textField, toast, unusedPhotos, updateCfg } = controller;
+  const { applyPhotoEdit, arOpen, autoArrange, autoArrangeByLocation, cfg, dragPhoto, editingPhoto, editorPanel, editorRatio, ghostPos, insets, panelContent, panelTitle, photos, pickMore, screen, setArOpen, setEditingPhotoId, setEditorPanel, setScenarioTitle, setScreen, setSelectedOrderId, setTextDraft, setTextEditing, showToast, slideDir, startFlow, switchCategory, textDraft, textEditing, textField, toast, unusedPhotos, updateCfg } = controller;
 
   const mainTab = screen === "home" || screen === "orders" || screen === "profile" ? screen : null;
   return (
@@ -160,69 +160,9 @@ export function PicPacShell({ children }: { children: React.ReactNode }) {
           <Image source={{ uri: photoById(photos, dragPhoto)?.uri }} style={styles.dragGhostImage} />
         </Animated.View>
       ) : null}
-      {arCapabilities?.arSupported && ExpoAr ? (
-        // Настоящий AR (ARKit/ARCore через expo-ar): камера и трекинг рендерятся
-        // нативно, постер — 2D-оверлей, прибитый к проекции якоря на стене
-        // (позиция и масштаб пересчитываются каждый кадр по проекциям якорей).
-        <Modal visible={arOpen} animationType="slide" onRequestClose={() => setArOpen(false)} statusBarTranslucent>
-          <View style={styles.arScreen}>
-            <ExpoAr.ExpoArView
-              ref={arRef}
-              style={StyleSheet.absoluteFill}
-              planeDetection="both"
-              emitProjections
-              onTap={(e) => { void handleArTap(e); }}
-              onAnchorsChange={handleArAnchors}
-              onProjection={handleArProjection}
-              onTrackingStateChange={(e) => setArTracking(e.nativeEvent.state)}
-              onError={(e) => setArNotice(`Ошибка AR: ${e.nativeEvent.message}`)}
-            />
-            {/* Постер «на стене» поверх нативного AR-рендера */}
-            <Animated.View pointerEvents="none" style={[styles.arNativePoster, { width: arPosterSize.x, height: arPosterSize.y, transform: [{ translateX: arPosterPos.x }, { translateY: arPosterPos.y }] }]}>
-              {photoById(photos, cfg.slots[0]?.photoId)?.uri ? (
-                <Image source={{ uri: photoById(photos, cfg.slots[0]?.photoId)?.uri }} style={styles.arNativePosterImage} resizeMode="cover" />
-              ) : (
-                <View style={styles.arNativePosterPlaceholder}>
-                  <Ionicons name="image-outline" size={36} color={colors.textSecondary} />
-                  <Text style={styles.arPosterPlaceholderText}>Добавьте фото в постер</Text>
-                </View>
-              )}
-            </Animated.View>
-            {/* Слой щипка (только двумя пальцами) — не перекрывает тапы AR-виду */}
-            <View style={StyleSheet.absoluteFill} {...arPinchResponder.panHandlers} pointerEvents="box-none" />
-            <View style={[styles.arTopBar, { top: insets.top + 12 }]}>
-              <Pressable style={styles.arCircleBtn} onPress={() => setArOpen(false)} accessibilityRole="button" accessibilityLabel="Закрыть AR-примерку" hitSlop={8}>
-                <Ionicons name="close" size={22} color="#fff" />
-              </Pressable>
-            </View>
-            <View style={[styles.arBottomBar, { bottom: insets.bottom + 16 }]} pointerEvents="box-none">
-              <Text style={styles.arHint}>
-                {arNotice
-                  ?? (arPhase === "placed"
-                    ? "Коснитесь нового места — переставить · щипок — размер"
-                    : arTracking === "normal"
-                      ? "Наведите камеру на стену и коснитесь экрана"
-                      : arTracking === "unavailable"
-                        ? "Трекинг недоступен — направьте камеру на освещённую поверхность"
-                        : "Ведите камеру медленно по стене")}
-              </Text>
-              {arPhase === "placed" ? (
-                <Pressable style={styles.arResetBtn} onPress={clearArAnchors} accessibilityRole="button" accessibilityLabel="Снять постер со стены" hitSlop={8}>
-                  <Ionicons name="pin" size={16} color="#fff" />
-                  <Text style={styles.arResetText}>Снять</Text>
-                </Pressable>
-              ) : null}
-            </View>
-          </View>
-        </Modal>
-      ) : (
-        // Expo Go / web: запасной псевдо-AR на датчиках движения + expo-camera.
-        <PosterARView
-          visible={arOpen} onClose={() => setArOpen(false)}
-          photoUri={photoById(photos, cfg.slots[0]?.photoId)?.uri}
-          aspect={posterAspect}
-        />
-      )}
+      <PosterARView visible={arOpen} onClose={() => setArOpen(false)}
+        photoUri={photoById(photos, cfg.slots[0]?.photoId)?.uri}
+        sizeId={cfg.posterSizeId} landscape={cfg.posterOrientation === 'landscape'} finish={getPrintFinish(cfg, 'poster')} />
 
       {/* Редактор фото: поворот, обрезка и локальные умные инструменты (фильтры, автоулучшение).
           Работает для любого фото: из лотка, печати, книги, открытки — правки видны везде. */}

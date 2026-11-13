@@ -1,5 +1,10 @@
+import { useRef, useState } from 'react';
+import { BlurTargetView } from 'expo-blur';
+import { ColorField } from '../components/color-picker/ColorField';
+import { FrostedSurface, FrostedTargetContext } from '../components/ui/FrostedSurface';
+import { builderStyles as ui } from '../styles/builder.styles';
 import { Ionicons } from "@expo/vector-icons";
-import { Pressable, ScrollView, Text, TextInput, View } from "react-native";
+import { Image, Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import { MotionView } from '../components/animation/MotionView';
 import { PhotoMenuTransition } from '../components/animation/PhotoMenuTransition';
 import { ScalePressable } from '../components/animation/ScalePressable';
@@ -18,13 +23,15 @@ import { PhotoTray } from '../features/photos/components/PhotoTray';
 import type { PicPacController } from '../state/usePicPacController';
 import { styles } from '../styles/app.styles';
 import { COVER_FRAME_COLORS, COVER_FRAME_WIDTHS, COVER_TITLE_COLORS, colors, spacing } from '../styles/theme';
-import { PrintFinish } from '../types/index';
-import { colorName, hexColorsEqual, isDark, money, normalizeHexColor, parseHexColor } from '../utils/format';
-import { QualityNotice } from '../features/smart-tools/QualityNotice';
+import { PrintFinish, ViewRef } from '../types/index';
+import { colorName, money } from '../utils/format';
 
 export function BuilderScreen({ controller }: { controller: PicPacController }) {
-  const { checkoutWarning, qualityChecking, reviewCheckout } = controller;
-  const { aiCost, applyPrintToAll, beginDrag, bookPage, cfg, clearSelectedSlot, dragPhoto, dropTargetId, emptySlots, endDrag, filled, handleSlotPress, hexTarget, hexValid, hexValue, insets, isSaved, leaveBuilder, lockTrayScroll, lowRes, moveDrag, onTrayPick, openPhotoEditor, openTextEditor, photos, pickMore, postcardInteracting, price, registerSlot, removeSpread, replaceSlotFromGallery, saveDraft, selectedSlot, selectedSlotId, setArOpen, setBookPage, setEditorPanel, setHexTarget, setHexValue, setPostcardInteracting, setScreen, setSpreadLayout, setSwapSlotId, spreadIsEmpty, swapSlotId, trayScrollLocked, unusedPhotos, updateCfg, updatePrintSlot } = controller;
+  const { reviewCheckout } = controller;
+  const [dockHeight, setDockHeight] = useState(180);
+  const [printSettingsOpen, setPrintSettingsOpen] = useState(false);
+  const blurTarget = useRef<ViewRef | null>(null);
+  const { aiCost, applyPrintToAll, beginDrag, bookPage, cfg, clearSelectedSlot, dragPhoto, dropTargetId, emptySlots, endDrag, filled, handleSlotPress, insets, isSaved, leaveBuilder, lockTrayScroll, moveDrag, onTrayPick, openPhotoEditor, openTextEditor, photos, pickMore, postcardInteracting, price, registerSlot, removeSpread, replaceSlotFromGallery, saveDraft, selectedSlot, selectedSlotId, setArOpen, setBookPage, setEditorPanel, setPostcardInteracting, setScreen, setSpreadLayout, setSwapSlotId, spreadIsEmpty, swapSlotId, trayScrollLocked, unusedPhotos, updateCfg, updatePrintSlot } = controller;
 
   const fixedCapacity = cfg.category === "photobook" || cfg.category === "poster" || cfg.category === "postcard";
   const settingsSummary =
@@ -36,30 +43,15 @@ export function BuilderScreen({ controller }: { controller: PicPacController }) 
   const coverShowTitle = cfg.coverShowTitle ?? true;
   const frameWidthLabel = COVER_FRAME_WIDTHS.find((f) => f.width === (cfg.coverFrameWidth ?? 14))?.label ?? "Своя";
   return (
-    <View style={styles.flex}>
-      <ScreenHeader
-        title="Макет" onBack={leaveBuilder}
-        right={
-          <ScalePressable
-            accessibilityRole="button" accessibilityLabel="Сохранить черновик" onPress={saveDraft} hitSlop={8} scaleTo={0.88}
-            style={[styles.backBtn, isSaved && styles.draftBtnSaved]}
-          >
-            <Ionicons name={isSaved ? "bookmark" : "bookmark-outline"} size={20} color={isSaved ? "#fff" : colors.text} />
-          </ScalePressable>
-        }
-      />
+    <FrostedTargetContext.Provider value={blurTarget}><View style={styles.flex}>
       {/* <StepBar step={2} /> */}
-      <ScrollView style={styles.flex} scrollEnabled={!postcardInteracting} showsVerticalScrollIndicator={false} contentContainerStyle={styles.editorContent}>
+      <BlurTargetView ref={blurTarget} style={styles.flex}>
+      <ScrollView style={styles.flex} scrollEnabled={!postcardInteracting} showsVerticalScrollIndicator={false} contentContainerStyle={[styles.editorContent, { paddingTop: 80, paddingBottom: dockHeight + 28 }]}>
         <StepBar step={2} />
         <View style={styles.builderTitle}>
           <Text style={styles.productSelectorName}>{productTitle(cfg)}</Text>
           <Text style={styles.productSelectorHint}>{isSaved ? "Сохранено в черновиках" : "Не сохранено в черновиках"}</Text>
         </View>
-        <QualityNotice
-          photos={photos.filter((p) => cfg.slots.some((s) => s.photoId === p.id))}
-          indexFrom={photos}
-          checking={qualityChecking}
-        />
         {/* <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.switcher} contentContainerStyle={styles.switcherRow}>
             {PRODUCT_TABS.map((p) => {
               const on = cfg.category === p.id;
@@ -90,7 +82,13 @@ export function BuilderScreen({ controller }: { controller: PicPacController }) 
         {/* Фотопечать: размер и рамки/поля прямо под превью. С выбранным
               отпечатком — правки только для него, без выбора — общие настройки. */}
         {cfg.category === "print" ? (
-          <View style={styles.layoutPicker}>
+          <View style={[styles.layoutPicker, { padding: 0, overflow: 'hidden' }]}>
+            <Pressable style={ui.disclosure} accessibilityRole="button" accessibilityLabel="Размер и оформление" accessibilityState={{ expanded: printSettingsOpen }} onPress={() => setPrintSettingsOpen(!printSettingsOpen)}>
+              <View style={ui.disclosureIcon}><Ionicons name="options-outline" size={20} color={colors.accent} /></View>
+              <View style={ui.disclosureBody}><Text style={ui.disclosureTitle}>Размер и оформление</Text><Text style={ui.disclosureHint}>{PRINT_FORMATS.find(f => f.id === (selectedSlot?.printFormatId ?? cfg.printFormatId))?.label} · {cfg.paper === 'matte' ? 'Матовая' : 'Глянцевая'} бумага</Text></View>
+              <Ionicons name={printSettingsOpen ? 'chevron-up' : 'chevron-down'} size={18} color={colors.textSecondary} />
+            </Pressable>
+            {printSettingsOpen && <View style={{ padding: 16, paddingTop: 4 }}>
             <View style={styles.layoutPickerHead}>
               <Text style={styles.layoutPickerTitle}>Размер и оформление</Text>
               {selectedSlot ? (
@@ -119,6 +117,7 @@ export function BuilderScreen({ controller }: { controller: PicPacController }) 
                   : updateCfg({ printFinish: { ...finish, ...patch } });
               return renderFinishEditor(finish, update, "print");
             })()}
+            </View>}
           </View>
         ) : null}
 
@@ -184,36 +183,8 @@ export function BuilderScreen({ controller }: { controller: PicPacController }) 
                       placeholder="Заголовок на обложке" placeholderTextColor={colors.textSecondary} maxLength={40}
                     />
                     <SettingGroup title="Цвет названия" hint={colorName(cfg.coverTitleColor)}>
-                      {COVER_TITLE_COLORS.map((c) => (
-                        <Pressable
-                          key={c} accessibilityRole="button" accessibilityLabel={`Цвет названия: ${colorName(c)}`}
-                          onPress={() => updateCfg({ coverTitleColor: c })}
-                          style={[styles.swatch, { backgroundColor: c }, hexColorsEqual(cfg.coverTitleColor, c) && styles.swatchActive]}
-                        >
-                          {hexColorsEqual(cfg.coverTitleColor, c) ? <Ionicons name="checkmark" size={18} color={isDark(c) ? "#fff" : colors.text} /> : null}
-                        </Pressable>
-                      ))}
-                      {/* Свой цвет: ввод HEX */}
-                      <Pressable
-                        accessibilityRole="button" accessibilityLabel="Свой цвет названия"
-                        onPress={() => { setHexTarget(hexTarget === "title" ? null : "title"); setHexValue(normalizeHexColor(cfg.coverTitleColor, "#FFFFFF")); }}
-                        style={[styles.swatch, styles.swatchCustom, !COVER_TITLE_COLORS.some(c => hexColorsEqual(cfg.coverTitleColor, c)) && styles.swatchActive, { backgroundColor: parseHexColor(cfg.coverTitleColor) ?? colors.card }]}
-                      >
-                        {COVER_TITLE_COLORS.some(c => hexColorsEqual(cfg.coverTitleColor, c))
-                          ? <Ionicons name="color-palette-outline" size={16} color={colors.textSecondary} />
-                          : <Ionicons name="checkmark" size={18} color={isDark(cfg.coverTitleColor ?? "#FFFFFF") ? "#fff" : colors.text} />}
-                      </Pressable>
+                      <ColorField title="Цвет названия" value={cfg.coverTitleColor ?? '#FFFFFF'} presets={COVER_TITLE_COLORS.map(value=>({value,name:colorName(value)}))} onChange={color=>updateCfg({coverTitleColor:color})} />
                     </SettingGroup>
-                    {hexTarget === "title" ? (
-                      <View style={styles.hexRow}>
-                        <TextInput
-                          style={styles.hexInput} value={hexValue} maxLength={7} autoCapitalize="none" autoCorrect={false}
-                          placeholder="#RRGGBB" placeholderTextColor={colors.textSecondary}
-                          onChangeText={(t) => { setHexValue(t); const parsed = parseHexColor(t); if (parsed) updateCfg({ coverTitleColor: parsed }); }}
-                        />
-                        <View style={[styles.swatch, styles.hexPreview, { backgroundColor: parseHexColor(hexValue) ?? parseHexColor(cfg.coverTitleColor) ?? "#E5E0DA" }]} />
-                      </View>
-                    ) : null}
                   </>
                 ) : null}
 
@@ -233,36 +204,8 @@ export function BuilderScreen({ controller }: { controller: PicPacController }) 
                       ))}
                     </SettingGroup>
                     <SettingGroup title="Цвет рамки" hint={colorName(cfg.coverFrameColor)}>
-                      {COVER_FRAME_COLORS.map((c) => (
-                        <Pressable
-                          key={c} accessibilityRole="button" accessibilityLabel={`Цвет рамки: ${colorName(c)}`}
-                          onPress={() => updateCfg({ coverFrameColor: c })}
-                          style={[styles.swatch, { backgroundColor: c }, hexColorsEqual(cfg.coverFrameColor, c) && styles.swatchActive]}
-                        >
-                          {hexColorsEqual(cfg.coverFrameColor, c) ? <Ionicons name="checkmark" size={18} color={isDark(c) ? "#fff" : colors.text} /> : null}
-                        </Pressable>
-                      ))}
-                      {/* Свой цвет: ввод HEX */}
-                      <Pressable
-                        accessibilityRole="button" accessibilityLabel="Свой цвет рамки"
-                        onPress={() => { setHexTarget(hexTarget === "frame" ? null : "frame"); setHexValue(normalizeHexColor(cfg.coverFrameColor, "#F5E6D3")); }}
-                        style={[styles.swatch, styles.swatchCustom, !COVER_FRAME_COLORS.some(c => hexColorsEqual(cfg.coverFrameColor, c)) && styles.swatchActive, { backgroundColor: parseHexColor(cfg.coverFrameColor) ?? colors.card }]}
-                      >
-                        {COVER_FRAME_COLORS.some(c => hexColorsEqual(cfg.coverFrameColor, c))
-                          ? <Ionicons name="color-palette-outline" size={16} color={colors.textSecondary} />
-                          : <Ionicons name="checkmark" size={18} color={isDark(cfg.coverFrameColor ?? "#F5E6D3") ? "#fff" : colors.text} />}
-                      </Pressable>
+                      <ColorField title="Цвет рамки" value={cfg.coverFrameColor ?? '#F5E6D3'} presets={COVER_FRAME_COLORS.map(value=>({value,name:colorName(value)}))} onChange={color=>updateCfg({coverFrameColor:color})} />
                     </SettingGroup>
-                    {hexTarget === "frame" ? (
-                      <View style={styles.hexRow}>
-                        <TextInput
-                          style={styles.hexInput} value={hexValue} maxLength={7} autoCapitalize="none" autoCorrect={false}
-                          placeholder="#RRGGBB" placeholderTextColor={colors.textSecondary}
-                          onChangeText={(t) => { setHexValue(t); const parsed = parseHexColor(t); if (parsed) updateCfg({ coverFrameColor: parsed }); }}
-                        />
-                        <View style={[styles.swatch, styles.hexPreview, { backgroundColor: parseHexColor(hexValue) ?? parseHexColor(cfg.coverFrameColor) ?? "#E5E0DA" }]} />
-                      </View>
-                    ) : null}
                   </>
                 ) : null}
               </View>
@@ -296,14 +239,8 @@ export function BuilderScreen({ controller }: { controller: PicPacController }) 
             </Pressable>
           )} */}
 
-        {lowRes > 0 && (
-          <Notice tone="warn" icon="warning-outline" text={`Низкое разрешение: ${lowRes} фото могут напечататься нечётко`} actionLabel="Проверить" onAction={() => setEditorPanel("ai")} />
-        )}
-
-
-
         <View style={styles.editorOptions}>
-          <Pressable accessibilityRole="button" accessibilityLabel="Настроить печать" style={styles.editorOption} onPress={() => setEditorPanel("settings")}>
+          {cfg.category !== "print" && <><Pressable accessibilityRole="button" accessibilityLabel="Настроить печать" style={styles.editorOption} onPress={() => setEditorPanel("settings")}>
             <Ionicons name="options-outline" size={20} color={colors.accent} />
             <View style={styles.optionBody}>
               <Text style={styles.settingsTitle}>Формат и оформление</Text>
@@ -311,7 +248,7 @@ export function BuilderScreen({ controller }: { controller: PicPacController }) 
             </View>
             <Ionicons name="chevron-forward" size={16} color={colors.textSecondary} />
           </Pressable>
-          <View style={styles.optionDivider} />
+          <View style={styles.optionDivider} /></>}
           <Pressable accessibilityRole="button" accessibilityLabel="Управлять фото" style={styles.editorOption} onPress={() => setEditorPanel("photos")}>
             <Ionicons name="images-outline" size={20} color={colors.accent} />
             <View style={styles.optionBody}>
@@ -322,6 +259,8 @@ export function BuilderScreen({ controller }: { controller: PicPacController }) 
           </Pressable>
         </View>
       </ScrollView>
+      </BlurTargetView>
+      <FrostedSurface onLayout={event => setDockHeight(event.nativeEvent.layout.height)} style={ui.dock}>
       {/* Лоток не нужен в режиме фотопечати: фото распределяются автоматически,
             замена — тапом по отпечатку (панель действий над футером). */}
       {cfg.category !== "print" && (
@@ -335,10 +274,10 @@ export function BuilderScreen({ controller }: { controller: PicPacController }) 
             ) : selectedSlot ? (
               <View style={styles.selBar}>
                 <View style={styles.actionRow}>
-                  <ActionTile icon="images-outline" label="Из галереи" onPress={() => void replaceSlotFromGallery(selectedSlot.id)} />
-                  {/* <ActionTile icon="swap-horizontal-outline" label="Поменять" onPress={() => setSwapSlotId(selectedSlot.id)} /> */}
-                  <ActionTile icon="file-tray-full-outline" label="В лоток" disabled={!selectedSlot.photoId} onPress={clearSelectedSlot} />
-                  <ActionTile icon="create-outline" label="Редактировать" disabled={!selectedSlot.photoId} onPress={() => openPhotoEditor(selectedSlot)} />
+                  <ActionTile stacked icon="images-outline" label="Из галереи" onPress={() => void replaceSlotFromGallery(selectedSlot.id)} />
+                  {/* <ActionTile stacked icon="swap-horizontal-outline" label="Поменять" onPress={() => setSwapSlotId(selectedSlot.id)} /> */}
+                  <ActionTile stacked icon="file-tray-full-outline" label="В лоток" disabled={!selectedSlot.photoId} onPress={clearSelectedSlot} />
+                  <ActionTile stacked icon="create-outline" label="Редактировать" disabled={!selectedSlot.photoId} onPress={() => openPhotoEditor(selectedSlot)} />
                 </View>
               </View>
             ) : null
@@ -347,31 +286,43 @@ export function BuilderScreen({ controller }: { controller: PicPacController }) 
           onDragStart={beginDrag} onDragMove={moveDrag} onDragDrop={endDrag} onDragIntent={lockTrayScroll}
         />
       )}
-      {cfg.category === "print" && selectedSlot ? (
+      {cfg.category === "print" ? (
         <CollapsibleBottomDock
-          title={`Отпечаток ${cfg.slots.indexOf(selectedSlot) + 1} из ${cfg.slots.length}`}
+          title={selectedSlot ? `Фото ${cfg.slots.indexOf(selectedSlot) + 1} из ${cfg.slots.length}` : `Ваши фото · ${photos.length}`}
+          leading={selectedSlot?.photoId ? <Image source={{ uri: photos.find(p => p.id === selectedSlot.photoId)?.uri }} style={{ width: 34, height: 40, borderRadius: 8 }} /> : undefined}
           icon="images-outline"
           dockStyle={{ paddingHorizontal: spacing.lg }}
         >
-          <PhotoMenuTransition key={selectedSlot.id} style={styles.selBar}>
+          <PhotoMenuTransition key={selectedSlot?.id ?? "none"} style={styles.selBar}>
             <View style={styles.actionRow}>
-              <ActionTile icon="images-outline" label="Из галереи" onPress={() => void replaceSlotFromGallery(selectedSlot.id)} />
-              <ActionTile icon="create-outline" label="Редактировать" disabled={!selectedSlot.photoId} onPress={() => openPhotoEditor(selectedSlot)} />
+              <ActionTile icon="images-outline" label={selectedSlot ? "Заменить фото" : "Добавить фото"} onPress={() => selectedSlot ? void replaceSlotFromGallery(selectedSlot.id) : void pickMore()} />
+              <ActionTile icon={selectedSlot ? "create-outline" : "checkmark-circle-outline"} label={selectedSlot ? "Редактировать" : "Выбрать фото"} active={!!selectedSlot} disabled={!!selectedSlot && !selectedSlot.photoId} onPress={() => selectedSlot ? openPhotoEditor(selectedSlot) : setEditorPanel("photos")} />
             </View>
           </PhotoMenuTransition>
         </CollapsibleBottomDock>
       ) : null}
-      {checkoutWarning && <Notice tone="warn" icon="warning-outline" text={checkoutWarning} />}
-      <View style={[styles.footerBar, styles.footerRow, { paddingBottom: insets.bottom + spacing.sm }]}>
+      <View style={[styles.footerBar, styles.footerRow, ui.footer, { paddingBottom: insets.bottom + spacing.sm }]}>
         <View style={{ flex: 1 }}>
           <Text style={styles.footerPriceLabel}>{aiCost > 0 ? `В т.ч. AI +${money(aiCost)}` : "К оплате"}</Text>
           <Text style={styles.footerPriceValue}>{money(price)}</Text>
         </View>
         <View style={{ flex: 1.2 }}>
-          <PrimaryButton label={qualityChecking ? 'Проверка фото…' : checkoutWarning ? 'Всё равно печатать' : 'Оформить'} icon="arrow-forward" disabled={filled === 0 || qualityChecking > 0} onPress={reviewCheckout} />
+          <PrimaryButton label="Оформить" icon="arrow-forward" disabled={filled === 0} onPress={reviewCheckout} />
         </View>
       </View>
-    </View>
+      </FrostedSurface>
+      <ScreenHeader
+        title="Макет" onBack={leaveBuilder}
+        right={
+          <ScalePressable
+            accessibilityRole="button" accessibilityLabel="Сохранить черновик" onPress={saveDraft} hitSlop={8} scaleTo={0.88}
+            style={[styles.backBtn, isSaved && styles.draftBtnSaved]}
+          >
+            <Ionicons name={isSaved ? "bookmark" : "bookmark-outline"} size={20} color={isSaved ? "#fff" : colors.text} />
+          </ScalePressable>
+        }
+      />
+    </View></FrostedTargetContext.Provider>
   );
 
 }

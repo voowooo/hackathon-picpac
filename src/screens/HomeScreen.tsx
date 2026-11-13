@@ -6,13 +6,13 @@ import { PrimaryButton, SectionTitle } from '../components/ui/index';
 import { PRODUCT_TABS } from '../config/catalog';
 import { ProductChoiceCard } from '../features/catalog/ProductChoiceCard';
 import { DraftCard } from '../features/drafts/DraftCard';
-import { ActiveOrdersRow } from '../features/orders/ActiveOrdersRow';
+import { OrderTracker } from '../features/orders/OrderCards';
 import type { PicPacController } from '../state/usePicPacController';
 import { styles } from '../styles/app.styles';
 import { colors, spacing } from '../styles/theme';
 
 export function HomeScreen({ controller }: { controller: PicPacController }) {
-  const { activeOrders, deleteDraft, insets, openDraft, photos, setEditorPanel, setScreen, setSelectedOrderId, startFlow, visibleDrafts } = controller;
+  const { activeOrder, deleteDraft, insets, openDraft, photos, setEditorPanel, setScreen, setSelectedOrderId, startFlow, visibleDrafts } = controller;
   return (
     <ScrollView contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 100 }]} showsVerticalScrollIndicator={false}>
       <View style={styles.homeBrand}>
@@ -37,9 +37,10 @@ export function HomeScreen({ controller }: { controller: PicPacController }) {
         </Pressable>
       )}
 
-      {activeOrders.length > 0 ? (
+      {activeOrder ? (
         <MotionView kind="section" delay={120}>
-          <ActiveOrdersRow orders={activeOrders} onOpen={(id) => { setSelectedOrderId(id); setScreen("orders"); }} />
+          <SectionTitle title="Ваш заказ в пути" />
+          <OrderTracker order={activeOrder} onPress={() => { setSelectedOrderId(activeOrder.id); setScreen("orders"); }} />
         </MotionView>
       ) : null}
 

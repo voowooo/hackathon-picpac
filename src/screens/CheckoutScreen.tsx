@@ -9,21 +9,22 @@ import { productDetails, productTitle } from '../domain/products';
 import { SummaryRow } from '../features/checkout/SummaryRow';
 import { FlatPreview } from '../features/editor/ProductPreview';
 import type { PicPacController } from '../state/usePicPacController';
+import { FrostedSurface } from '../components/ui/FrostedSurface';
 import { styles } from '../styles/app.styles';
 import { colors, spacing } from '../styles/theme';
 import { money } from '../utils/format';
 
 export function CheckoutScreen({ controller }: { controller: PicPacController }) {
-  const { aiCost, aiCount, base, bookPage, cfg, checkoutPreviewOpen, delivery, deliveryId, deliveryPrice, discount, filled, insets, paymentId, photos, placeOrder, placingOrder, postcardInteracting, promo, promoError, promoPercent, promoValid, recipient, setBookPage, setCheckoutPreviewOpen, setDeliveryId, setPaymentId, setPostcardInteracting, setPromo, setRecipient, setScreen, totalPrice } = controller;
+  const { aiCost, aiCount, base, bookPage, cfg, checkoutPreviewOpen, delivery, deliveryId, deliveryPrice, discount, filled, insets, paymentId, photos, placeOrder, postcardInteracting, promo, promoValid, recipient, setBookPage, setCheckoutPreviewOpen, setDeliveryId, setPaymentId, setPostcardInteracting, setPromo, setRecipient, setScreen, totalPrice } = controller;
   return (
     <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === "ios" ? "padding" : undefined}>
       <ScreenHeader title="Доставка и оплата" onBack={() => setScreen("builder")} />
-      <StepBar step={3} />
       <ScrollView
         scrollEnabled={!postcardInteracting}
-        contentContainerStyle={[styles.scrollContent, { paddingBottom: spacing.xl }]}
+        contentContainerStyle={[styles.scrollContent, { paddingTop: 80, paddingBottom: insets.bottom + 120 }]}
         showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled"
       >
+        <StepBar step={3} />
         <Pressable
           style={styles.orderReview} onPress={() => setCheckoutPreviewOpen(!checkoutPreviewOpen)} accessibilityRole="button"
           accessibilityState={{ expanded: checkoutPreviewOpen }}
@@ -86,26 +87,25 @@ export function CheckoutScreen({ controller }: { controller: PicPacController })
           style={styles.input} value={promo} onChangeText={setPromo} placeholder="Введите промокод"
           placeholderTextColor={colors.textSecondary} autoCapitalize="characters"
         />
-        {promoError ? <Text style={[styles.checkoutMeta, { color: colors.danger, marginTop: -spacing.xs, marginBottom: spacing.sm }]}>{promoError}</Text> : null}
 
         <View style={styles.card}>
           <SummaryRow label="Товар" value={money(base)} />
           {aiCost > 0 ? <SummaryRow ai label={`AI-обработка · ${aiCount} ф. × ${filled} фото`} value={money(aiCost)} /> : null}
           <SummaryRow label={`Доставка · ${delivery?.label ?? ""}`} value={money(deliveryPrice)} />
-          {promoValid ? <SummaryRow label={`Промокод −${promoPercent}%`} value={`−${money(discount)}`} accent /> : null}
+          {promoValid ? <SummaryRow label="Промокод −10%" value={`−${money(discount)}`} accent /> : null}
           <View style={styles.summaryDivider} />
           <SummaryRow label="Итого" value={money(totalPrice)} strong />
         </View>
       </ScrollView>
-      <View style={[styles.footerBar, styles.footerRow, { paddingBottom: insets.bottom + spacing.sm }]}>
+      <FrostedSurface style={[{ position: 'absolute', bottom: 0, left: 0, right: 0, zIndex: 20 }, styles.footerBar, styles.footerRow, { paddingBottom: insets.bottom + spacing.sm }]}>
         <View style={{ flex: 1 }}>
           <Text style={styles.footerPriceLabel}>К оплате</Text>
           <Text style={styles.footerPriceValue}>{money(totalPrice)}</Text>
         </View>
         <View style={{ flex: 1.2 }}>
-          <PrimaryButton label={placingOrder ? "Оформляем…" : "Оформить заказ"} onPress={() => void placeOrder()} disabled={placingOrder} />
+          <PrimaryButton label="Оформить заказ" onPress={placeOrder} />
         </View>
-      </View>
+      </FrostedSurface>
     </KeyboardAvoidingView>
   );
 }

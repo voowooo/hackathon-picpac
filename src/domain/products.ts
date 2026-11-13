@@ -1,4 +1,4 @@
-import { BOOK_LINES, BOOK_TEMPLATES, COVER_COLORS, DEFAULT_PRINT_FINISH, MAX_SPREADS, MIN_SPREADS, POSTCARD_TEMPLATES, PRICES, POSTER_SIZES, PRINT_FORMATS, SPREAD_LAYOUTS } from '../config/catalog';
+import { BOOK_LINES, BOOK_TEMPLATES, COVER_COLORS, DEFAULT_PRINT_FINISH, MAX_SPREADS, MIN_SPREADS, POSTCARD_PRICE, POSTCARD_TEMPLATES, POSTER_SIZES, PRINT_FORMATS, SPREAD_LAYOUTS, SPREAD_PRICE } from '../config/catalog';
 import { Photo, PhotoSlot, PrintFinish, PrintFormat, ProductCategory, ProductConfig, SpreadLayout } from '../types/index';
 import { clamp, normalizeHexColor } from '../utils/format';
 import { photoById } from './photos';
@@ -103,7 +103,7 @@ export function syncSlots(cfg: ProductConfig, photos: Photo[], autofill = true):
 
 export function makeConfig(category: ProductCategory, photos: Photo[], prev?: ProductConfig): ProductConfig {
   const base: ProductConfig = prev ?? {
-    category, printFormatId: "10x15", paper: "matte", copies: 1, bookLineId: "lite", bookFormat: "25×25",
+    category, printFormatId: "10x15", paper: "matte", copies: 1, bookLineId: "lite", bookFormat: BOOK_LINES[0].formats[0],
     spreads: defaultSpreads(photos.length), coverColorId: "cream", bookTemplateId: BOOK_TEMPLATES[0].id,
     bookTitle: "Наши лучшие моменты", posterOrientation: "portrait", posterSizeId: POSTER_SIZES[1].id,
     postcardTemplateId: POSTCARD_TEMPLATES[0].id, postcardCaption: "С любовью и теплом", slots: [], aiTools: [], spreadLayouts: [],
@@ -150,9 +150,9 @@ export function baseEstimate(cfg: ProductConfig): number {
   const filled = filledCount(cfg);
   switch (cfg.category) {
     case "print": return cfg.slots.reduce((sum, s) => (s.photoId ? sum + slotPrintFormat(cfg, s).pricePer : sum), 0) * cfg.copies;
-    case "photobook": return (BOOK_LINES.find((x) => x.id === cfg.bookLineId)?.basePrice ?? 49.9) + cfg.spreads * PRICES.spread;
+    case "photobook": return (BOOK_LINES.find((x) => x.id === cfg.bookLineId)?.basePrice ?? 49.9) + cfg.spreads * SPREAD_PRICE;
     case "poster": return POSTER_SIZES.find((x) => x.id === cfg.posterSizeId)?.price ?? 24.9;
-    case "postcard": return PRICES.postcard * cfg.copies;
+    case "postcard": return POSTCARD_PRICE * cfg.copies;
     default: return 0;
   }
 }
@@ -172,32 +172,16 @@ export function estimatePrice(cfg: ProductConfig) {
 
 // Сколько снимков в макете имеют низкое разрешение для выбранного формата (≈120 dpi).
 export function lowResCount(cfg: ProductConfig, photos: Photo[]): number {
-  return cfg.slots.filter((s) => slotLowRes(cfg, photoById(photos, s.photoId))).length;
-}
-
-// Хватает ли пикселей снимку для выбранного формата (≈120 dpi по длинной стороне).
-export function slotLowRes(cfg: ProductConfig, p: Photo | undefined): boolean {
   let longCm = 0;
   if (cfg.category === "print") {
     longCm = Math.max(...(PRINT_FORMATS.find((f) => f.id === cfg.printFormatId)?.id ?? "10x15").split("x").map(Number));
   } else if (cfg.category === "poster") {
     longCm = Math.max(...(POSTER_SIZES.find((s) => s.id === cfg.posterSizeId)?.label ?? "30×40").split("×").map((x) => parseFloat(x)));
   }
-  if (!longCm) return false;
+  if (!longCm) return 0;
   const need = (longCm / 2.54) * 120;
-  return !!p?.width && !!p?.height && Math.max(p.width, p.height) < need;
-}
-
-// Сведения о качестве каждой заполненной ячейки — уходят в заказ, чтобы типография видела проблемы.
-export function slotPhotoInfo(cfg: ProductConfig, photos: Photo[]) {
-  const out: Record<string, { width?: number; height?: number; score?: number; issues: string[]; maxPrintWidthCm?: number; maxPrintHeightCm?: number; lowRes: boolean }> = {};
-  for (const s of cfg.slots) {
+  return cfg.slots.filter((s) => {
     const p = photoById(photos, s.photoId);
-    if (!p) continue;
-    out[s.id] = {
-      width: p.width, height: p.height, score: p.quality?.score, issues: p.quality?.issues ?? [],
-      maxPrintWidthCm: p.quality?.maxPrintWidthCm, maxPrintHeightCm: p.quality?.maxPrintHeightCm, lowRes: slotLowRes(cfg, p),
-    };
-  }
-  return out;
+    return !!p?.width && !!p?.height && Math.max(p.width, p.height) < need;
+  }).length;
 }

@@ -67,12 +67,20 @@ export function Track({ activeIndex }: { activeIndex: number }) {
     run.start();
     return () => run.stop();
   }, [activeIndex, fill]);
-  const lineW = w * 0.8;
+  const step = w / ORDER_STATUSES.length;
+  const lineW = step * (ORDER_STATUSES.length - 1);
+  const nodeInset = 18 + 4; // Circle radius plus breathing room on each side.
+  const gap = Math.max(0, step - nodeInset * 2);
   return (
     <View onLayout={(e) => setW(e.nativeEvent.layout.width)}>
-      <View style={[styles.trackLine, { left: w * 0.1, width: lineW }]}>
-        <Animated.View style={[styles.trackFill, { width: fill.interpolate({ inputRange: [0, 1], outputRange: [0, lineW] }) }]} />
-      </View>
+      {gap > 0 && ORDER_STATUSES.slice(0, -1).map((label, i) => (
+        <View key={label} style={[styles.trackLine, { left: step * (i + .5) + nodeInset, width: gap }]}>
+          <Animated.View style={[styles.trackFill, { width: fill.interpolate({
+            inputRange: [(i * step + nodeInset) / lineW, ((i + 1) * step - nodeInset) / lineW],
+            outputRange: [0, gap], extrapolate: 'clamp',
+          }) }]} />
+        </View>
+      ))}
       <View style={styles.trackRow}>
         {ORDER_STATUSES.map((label, i) => (
           <View key={label} style={styles.trackCol}>
@@ -88,24 +96,22 @@ export function Track({ activeIndex }: { activeIndex: number }) {
 export function OrderTracker({ order, onPress }: { order: MockOrder; onPress?: () => void }) {
   const idx = clamp(order.statusIndex, 0, ORDER_STATUSES.length - 1);
   const delivered = idx === ORDER_STATUSES.length - 1;
-  const cancelled = !!order.cancelled;
-  const title = cancelled ? "Отменён" : ORDER_STATUSES[idx];
   return (
     <ScalePressable
       onPress={onPress} disabled={!onPress} scaleTo={0.98} accessibilityRole={onPress ? "button" : undefined}
-      accessibilityLabel={`Статус заказа: ${title}`} wrapStyle={styles.trackerWrap}
+      accessibilityLabel={`Статус заказа: ${ORDER_STATUSES[idx]}`} wrapStyle={styles.trackerWrap}
     >
       <LinearGradient colors={delivered ? ["#364C49", "#364C49"] : ["#364C49", "#364C49"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.tracker}>
         <View style={styles.trackerTop}>
           <Float>
             <View style={styles.trackerBubble}>
-              <Ionicons name={cancelled ? "close-circle-outline" : STATUS_ICONS[idx]} size={26} color="#fff" />
+              <Ionicons name={STATUS_ICONS[idx]} size={26} color="#fff" />
             </View>
           </Float>
           <View style={{ flex: 1 }}>
             <Text style={styles.trackerKicker} numberOfLines={1}>{order.title} · № {order.id.replace("ord-", "")}</Text>
-            <Text style={styles.trackerTitle}>{title}</Text>
-            <Text style={styles.trackerSub}>{cancelled ? "Заказ отменён. Если это ошибка — напишите нам" : STATUS_TEXT[idx]}</Text>
+            <Text style={styles.trackerTitle}>{ORDER_STATUSES[idx]}</Text>
+            <Text style={styles.trackerSub}>{STATUS_TEXT[idx]}</Text>
           </View>
           {onPress ? <Ionicons name="chevron-forward" size={18} color="rgba(255,255,255,0.7)" /> : null}
         </View>
@@ -115,7 +121,7 @@ export function OrderTracker({ order, onPress }: { order: MockOrder; onPress?: (
         <View style={styles.trackerFooter}>
           <View style={styles.trackerEta}>
             <Ionicons name={delivered ? "checkmark-circle-outline" : "time-outline"} size={16} color="rgba(255,255,255,0.85)" />
-            <Text style={styles.trackerEtaText}>{cancelled ? "—" : STATUS_ETA[idx]}</Text>
+            <Text style={styles.trackerEtaText}>{STATUS_ETA[idx]}</Text>
           </View>
           <Text style={styles.trackerPrice}>{money(order.total)}</Text>
         </View>
@@ -125,7 +131,7 @@ export function OrderTracker({ order, onPress }: { order: MockOrder; onPress?: (
 }
 
 export function OrderCard({ order, onPress, onRepeat }: { order: MockOrder; onPress?: () => void; onRepeat?: () => void }) {
-  const pill = orderStatusStyle(order.cancelled ? -1 : order.statusIndex);
+  const pill = orderStatusStyle(order.statusIndex);
   return (
     <Pressable style={styles.orderCard} onPress={onPress} disabled={!onPress}>
       <Image source={{ uri: order.previewUri }} style={styles.orderCardImage} />
@@ -136,7 +142,7 @@ export function OrderCard({ order, onPress, onRepeat }: { order: MockOrder; onPr
         <View style={styles.orderCardFooter}>
           <Text style={styles.orderCardPrice}>{money(order.total)}</Text>
           <View style={[styles.orderStatusPill, { backgroundColor: pill.bg }]}>
-            <Text style={[styles.orderStatusText, { color: pill.text }]}>{order.cancelled ? "Отменён" : ORDER_STATUSES[order.statusIndex]}</Text>
+            <Text style={[styles.orderStatusText, { color: pill.text }]}>{ORDER_STATUSES[order.statusIndex]}</Text>
           </View>
         </View>
         {onRepeat ? (

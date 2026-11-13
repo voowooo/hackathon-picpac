@@ -5,6 +5,7 @@ import { PrimaryButton, Stepper } from '../components/ui/index';
 import { BOOK_LINES, BOOK_LINE_IMAGES, MAX_SPREADS, MIN_SPREADS } from '../config/catalog';
 import { baseEstimate, defaultSpreads } from '../domain/products';
 import type { PicPacController } from '../state/usePicPacController';
+import { FrostedSurface } from '../components/ui/FrostedSurface';
 import { styles } from '../styles/app.styles';
 import { PASTELS, colors, spacing } from '../styles/theme';
 import { money } from '../utils/format';
@@ -19,7 +20,7 @@ export function BookSetupScreen({ controller }: { controller: PicPacController }
   return (
     <View style={styles.flex}>
       <ScreenHeader title="Оформление фотокниги" onBack={() => setScreen(chooseProductAfterUpload ? "productPicker" : "home")} />
-      <ScrollView contentContainerStyle={[styles.scrollContent, { paddingBottom: spacing.xl }]} showsVerticalScrollIndicator={false}>
+      <ScrollView contentContainerStyle={[styles.scrollContent, { paddingTop: 80, paddingBottom: insets.bottom + 120 }]} showsVerticalScrollIndicator={false}>
         {scenarioTitle ? (
           <View style={styles.setupScenario}>
             <Ionicons name="sparkles-outline" size={16} color={colors.accent} />
@@ -148,9 +149,9 @@ export function BookSetupScreen({ controller }: { controller: PicPacController }
           <Text style={styles.setupSummaryPrice}>{money(baseEstimate(cfg))}</Text>
         </View>
       </ScrollView>
-      <View style={[styles.footerBar, { paddingBottom: insets.bottom + spacing.sm }]}>
+      <FrostedSurface style={[{ position: 'absolute', bottom: 0, left: 0, right: 0, zIndex: 20 }, styles.footerBar, { paddingBottom: insets.bottom + spacing.sm }]}>
         <PrimaryButton label="Перейти в редактор" icon="arrow-forward" onPress={() => setScreen("builder")} />
-      </View>
+      </FrostedSurface>
     </View>
   );
 

@@ -3,9 +3,10 @@ import { Image, Pressable, ScrollView, Text, View } from "react-native";
 import { ScreenHeader, StepBar } from '../components/navigation/index';
 import { PrimaryButton } from '../components/ui/index';
 import type { PicPacController } from '../state/usePicPacController';
+import { FrostedSurface } from '../components/ui/FrostedSurface';
 import { styles } from '../styles/app.styles';
 import { colors, spacing } from '../styles/theme';
-import { QualityBadge, QualityNotice } from '../features/smart-tools/QualityNotice';
+import { QualityNotice } from '../features/smart-tools/QualityNotice';
 
 export function PhotoPickerScreen({ controller }: { controller: PicPacController }) {
   const { clearPhotos, goToBuilder, insets, photos, pickMore, removePhoto, setScreen, width } = controller;
@@ -14,8 +15,8 @@ export function PhotoPickerScreen({ controller }: { controller: PicPacController
   return (
     <View style={styles.flex}>
       <ScreenHeader title="Фотографии" onBack={() => setScreen("builder")} />
-      <StepBar step={1} />
-      <ScrollView contentContainerStyle={[styles.scrollContent, { paddingBottom: spacing.xl }]} showsVerticalScrollIndicator={false}>
+      <ScrollView contentContainerStyle={[styles.scrollContent, { paddingTop: 80, paddingBottom: insets.bottom + 120 }]} showsVerticalScrollIndicator={false}>
+        <StepBar step={1} />
         <QualityNotice photos={photos} checking={controller.qualityChecking} />
         {photos.length === 0 ? (
           <View style={styles.dropzone}>
@@ -42,7 +43,7 @@ export function PhotoPickerScreen({ controller }: { controller: PicPacController
               {photos.map((p, index) => (
                 <View key={p.id} style={[styles.thumb, { width: thumb, height: thumb }]}>
                   <Image source={{ uri: p.uri }} style={styles.fill} />
-                  <QualityBadge photo={p} index={index} />
+
                   <Pressable style={styles.thumbRemove} onPress={() => removePhoto(p.id)} hitSlop={6}>
                     <Ionicons name="close" size={13} color="#fff" />
                   </Pressable>
@@ -52,9 +53,9 @@ export function PhotoPickerScreen({ controller }: { controller: PicPacController
           </>
         )}
       </ScrollView>
-      <View style={[styles.footerBar, { paddingBottom: insets.bottom + spacing.sm }]}>
+      <FrostedSurface style={[{ position: 'absolute', bottom: 0, left: 0, right: 0, zIndex: 20 }, styles.footerBar, { paddingBottom: insets.bottom + spacing.sm }]}>
         <PrimaryButton label="К макету" icon={photos.length ? "arrow-forward" : undefined} disabled={photos.length === 0} onPress={() => goToBuilder()} />
-      </View>
+      </FrostedSurface>
     </View>
   );
 
