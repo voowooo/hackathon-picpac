@@ -4,14 +4,13 @@ import { Image, PanResponder, Pressable, ScrollView, Text, View } from "react-na
 import { styles } from '../../../styles/app.styles';
 import { colors } from '../../../styles/theme';
 import { Photo, PhotoSlot } from '../../../types/index';
-import { QualityBadge } from '../../smart-tools/QualityNotice';
 import { CollapsibleBottomDock } from "./CollapsibleBottomDock";
 
 // Миниатюра в лотке: тап ставит фото в ячейку, потягивание вверх переносит его на страницу.
 export function TrayThumb({
-  photo, index, used, selected, dragging, onPick, onDragStart, onDragMove, onDragDrop, onDragIntent,
+  photo, used, selected, dragging, onPick, onDragStart, onDragMove, onDragDrop, onDragIntent,
 }: {
-  photo: Photo; index: number; used: boolean; selected: boolean; dragging: boolean;
+  photo: Photo; used: boolean; selected: boolean; dragging: boolean;
   onPick: () => void;
   onDragStart: (photoId: string, x: number, y: number) => void;
   onDragMove: (photoId: string, x: number, y: number) => void;
@@ -44,7 +43,6 @@ export function TrayThumb({
         style={[styles.trayThumb, selected && styles.trayThumbSelected, dragging && styles.trayThumbDragging]}
       >
         <Image source={{ uri: photo.uri }} style={[styles.fill, !used && { opacity: 0.92 }]} />
-        <QualityBadge photo={photo} index={index} />
         {used ? (
           <View style={styles.trayBadge}>
             <Ionicons name="checkmark" size={10} color="#fff" />
@@ -76,12 +74,11 @@ export function PhotoTray({
       title={`Лоток фото · ${photos.length}`}
       disabled={!!draggingId || scrollLocked}
     >
-      {top}
-      {note ? <Text style={styles.trayNote}>{note}</Text> : null}
+      <Text style={styles.trayNote}>{note || 'Перетащите фото в макет или нажмите на снимок'}</Text>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.trayRow} scrollEnabled={!scrollLocked}>
-        {photos.map((p, index) => (
+        {photos.map((p) => (
           <TrayThumb
-            key={p.id} photo={p} index={index} used={used.has(p.id)} selected={p.id === selectedPhotoId} dragging={draggingId === p.id}
+            key={p.id} photo={p} used={used.has(p.id)} selected={p.id === selectedPhotoId} dragging={draggingId === p.id}
             onPick={() => onPick(p.id)} onDragStart={onDragStart} onDragMove={onDragMove} onDragDrop={onDragDrop}
             onDragIntent={onDragIntent}
           />
@@ -91,6 +88,7 @@ export function PhotoTray({
           <Text style={styles.trayAddText}>Ещё</Text>
         </Pressable>
       </ScrollView>
+      {top}
     </CollapsibleBottomDock>
   );
 }

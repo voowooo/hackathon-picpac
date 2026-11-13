@@ -7,14 +7,14 @@ import { ProductChoiceCard } from '../features/catalog/ProductChoiceCard';
 import type { PicPacController } from '../state/usePicPacController';
 import { styles } from '../styles/app.styles';
 import { colors, spacing } from '../styles/theme';
-import { QualityBadge, QualityNotice } from '../features/smart-tools/QualityNotice';
+import { QualityNotice } from '../features/smart-tools/QualityNotice';
 
 export function ProductPickerScreen({ controller }: { controller: PicPacController }) {
   const { chooseUploadedProduct, insets, photos, pickMore, removePhoto, setScreen, width } = controller;
   return (
     <View style={styles.flex}>
       <ScreenHeader title="Что напечатать" onBack={() => setScreen("home")} />
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={[styles.productChoiceContent, { paddingBottom: insets.bottom + spacing.lg }]}>
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={[styles.productChoiceContent, { paddingTop: 80, paddingBottom: insets.bottom + spacing.lg }]}>
         <View style={styles.uploadedPhotosSummary}>
           <Ionicons name="images-outline" size={26} color={colors.text} />
           <View style={styles.flex}>
@@ -32,7 +32,7 @@ export function ProductPickerScreen({ controller }: { controller: PicPacControll
             renderItem={({ item, index }) => (
               <View style={styles.uploadedPhotoItem}>
                 <Image source={{ uri: item.uri }} style={styles.uploadedPhotoPreview} resizeMode="cover" accessibilityLabel={`Выбранное фото ${index + 1}`} />
-                <QualityBadge photo={item} index={index} />
+
                 <Pressable
                   style={styles.uploadedPhotoRemove} hitSlop={8} onPress={() => removePhoto(item.id)}
                   accessibilityRole="button" accessibilityLabel={`Убрать фото ${index + 1} из выбранных`}

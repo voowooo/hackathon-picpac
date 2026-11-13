@@ -7,6 +7,7 @@ import { styles } from '../../styles/app.styles';
 import { colors, spacing } from '../../styles/theme';
 import { IconName } from '../../types/index';
 import { ScalePressable } from '../animation/ScalePressable';
+import { FrostedBackground } from '../ui/FrostedSurface';
 
 // Индикатор шагов заказа: Фото → Макет → Заказ.
 export function StepBar({ step }: { step: 1 | 2 | 3 }) {
@@ -34,8 +35,10 @@ export function StepBar({ step }: { step: 1 | 2 | 3 }) {
 }
 
 export function ScreenHeader({ title, onBack, right }: { title: string; onBack?: () => void; right?: React.ReactNode }) {
+  const insets = useSafeAreaInsets();
   return (
-    <View style={styles.screenHeader}>
+    <View style={[styles.screenHeader, { position: 'absolute', top: -insets.top, left: 0, right: 0, paddingTop: insets.top + 8, height: insets.top + 64, zIndex: 40 }]}>
+      <FrostedBackground fadeBottom />
       <View style={styles.headerSide}>
         {onBack ? (
           <ScalePressable onPress={onBack} style={styles.backBtn} hitSlop={8} accessibilityRole="button" accessibilityLabel="Назад" scaleTo={0.88}>

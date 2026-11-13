@@ -13,7 +13,7 @@ export function OrdersScreen({ controller }: { controller: PicPacController }) {
   return (
     <View style={styles.flex}>
       <ScreenHeader title={selectedOrder ? "Заказ" : "Заказы"} onBack={selectedOrder ? () => setSelectedOrderId(null) : undefined} />
-      <ScrollView contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 100 }]} showsVerticalScrollIndicator={false}>
+      <ScrollView contentContainerStyle={[styles.scrollContent, { paddingTop: 80, paddingBottom: insets.bottom + 100 }]} showsVerticalScrollIndicator={false}>
         {selectedOrder ? (
           <>
             <MotionView kind="section">

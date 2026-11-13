@@ -22,7 +22,7 @@ export function FlatPreview({
     const itemW = Math.round(Math.min(width * 0.78, 400));
     const gap = 12;
     return (
-      <View style={styles.flatStage}>
+      <View style={[styles.flatStage, { backgroundColor: 'transparent', paddingVertical: 8 }]}>
         <ScrollView
           horizontal
           snapToInterval={itemW + gap}

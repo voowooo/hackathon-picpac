@@ -12,6 +12,7 @@ export function CollapsibleBottomDock({
   disabled,
   dockStyle,
   children,
+  leading,
 }: {
   title: string;
   legend?: string;
@@ -19,6 +20,7 @@ export function CollapsibleBottomDock({
   disabled?: boolean;
   dockStyle?: StyleProp<ViewStyle>;
   children: React.ReactNode;
+  leading?: React.ReactNode;
 }) {
   const [collapsed, setCollapsed] = useState(false);
   const [bodyHeight, setBodyHeight] = useState(0);
@@ -37,6 +39,7 @@ export function CollapsibleBottomDock({
 
   return (
     <View style={[styles.trayDock, dockStyle]}>
+      <View pointerEvents="none" style={{ width: 30, height: 3, borderRadius: 2, backgroundColor: '#B8C3BA', alignSelf: 'center', marginTop: 2, marginBottom: 4 }} />
       <Pressable
         style={styles.trayHeader}
         onPress={() => setCollapsed(value => !value)}
@@ -45,7 +48,7 @@ export function CollapsibleBottomDock({
         accessibilityState={{ expanded: !collapsed }}
         accessibilityLabel={collapsed ? "Показать панель" : "Скрыть панель"}
       >
-        <Ionicons name={icon} size={20} color={colors.text} />
+        {leading ?? <View style={{ width: 32, height: 32, backgroundColor: 'rgba(255,255,255,.72)', borderRadius: 11, alignItems: 'center', justifyContent: 'center' }}><Ionicons name={icon} size={18} color={colors.text} /></View>}
         <Text style={styles.trayTitle}>{title}</Text>
         <Text style={styles.trayLegend}>{legend ?? (collapsed ? "Показать" : "Скрыть")}</Text>
         <Animated.View style={{ transform: [{ rotate: reveal.interpolate({ inputRange: [0, 1], outputRange: ["180deg", "0deg"] }) }] }}>

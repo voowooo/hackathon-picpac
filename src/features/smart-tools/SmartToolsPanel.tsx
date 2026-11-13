@@ -1,57 +1,41 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
-import type { IconName, PhotoQuality } from '../../types';
+import type { IconName } from '../../types';
 import type { LocalEffect } from './pixels';
 import { smartStyles as s } from './smart-tools.styles';
 
-type Tool = { id: LocalEffect | 'crop'; label: string; icon: IconName };
-const tools: Tool[] = [
-  { id: 'enhance', label: 'Автоулучшение', icon: 'sparkles-outline' },
-  { id: 'crop', label: 'Подобрать кадр', icon: 'scan-outline' },
-  { id: 'sharpen', label: 'Резкость', icon: 'aperture-outline' },
-  { id: 'background', label: 'Однотонный фон', icon: 'cut-outline' },
+type Tool = { id: LocalEffect | 'crop'; label: string; hint: string; icon: IconName };
+const corrections: Tool[] = [
+  { id: 'enhance', label: 'Авто', hint: 'Свет и цвет', icon: 'sparkles-outline' },
+  { id: 'bright', label: 'Светлее', hint: 'Мягкая экспозиция', icon: 'sunny-outline' },
+  { id: 'sharpen', label: 'Резкость', hint: 'Выразить детали', icon: 'aperture-outline' },
+  { id: 'contrast', label: 'Контраст', hint: 'Глубина тонов', icon: 'contrast-outline' },
+  { id: 'crop', label: 'Умный кадр', hint: 'По формату печати', icon: 'scan-outline' },
+  { id: 'background', label: 'Убрать фон', hint: 'Для однотонного фона', icon: 'cut-outline' },
 ];
 const filters: Tool[] = [
-  { id: 'gray', label: 'Ч/б', icon: 'contrast-outline' },
-  { id: 'sepia', label: 'Сепия', icon: 'sunny-outline' },
-  { id: 'contrast', label: 'Контраст', icon: 'options-outline' },
-  { id: 'bright', label: 'Светлее', icon: 'sunny-outline' },
-  { id: 'blur', label: 'Мягкость', icon: 'water-outline' },
-  { id: 'retro', label: 'Ретро', icon: 'film-outline' },
-  { id: 'cool', label: 'Прохлада', icon: 'snow-outline' },
+  { id: 'gray', label: 'Ч/б', hint: 'Монохром', icon: 'contrast-outline' },
+  { id: 'sepia', label: 'Сепия', hint: 'Тёплая классика', icon: 'sunny-outline' },
+  { id: 'retro', label: 'Ретро', hint: 'Плёночные тона', icon: 'film-outline' },
+  { id: 'cool', label: 'Прохлада', hint: 'Холодные оттенки', icon: 'snow-outline' },
+  { id: 'blur', label: 'Мягкость', hint: 'Плавное размытие', icon: 'water-outline' },
 ];
 
-export function SmartToolsPanel({ quality, disabled, canUndo, onTool, onUndo, onReset, large, lightweight, onLightweight }: {
-  quality?: PhotoQuality; disabled: boolean; canUndo: boolean;
-  onTool: (tool: LocalEffect | 'crop') => void; onUndo: () => void; onReset: () => void;
-  large: boolean; lightweight: boolean; onLightweight: () => void;
+export function SmartToolsPanel({ disabled, active, onTool }: {
+  disabled: boolean; active: string[];
+  onTool: (tool: LocalEffect | 'crop') => void;
 }) {
-  const [expanded, setExpanded] = useState(false);
+  const [tab, setTab] = useState<'correction' | 'filters'>('correction');
   return <View style={s.panel}>
-    <Text style={s.title}>Умные инструменты</Text>
-    {(large || lightweight) && <View style={s.quality}><View style={{ flex: 1, gap: 8 }}>
-      <Text style={s.hint}>Фото больше 8 Мп: для экономии памяти можно обработать копию до 2000 px. Оригинал сохранится. Разрешение для печати уменьшится.</Text>
-      <Pressable accessibilityRole="checkbox" accessibilityState={{ checked: lightweight }} disabled={disabled} style={s.tool} onPress={onLightweight}><Ionicons name={lightweight ? 'checkbox' : 'square-outline'} size={20} color="#EC7777" /><Text style={s.text}>Обрабатывать уменьшенную копию</Text></Pressable>
-    </View></View>}
-    {quality && <View style={s.quality}>
-      <Ionicons name={quality.issues.length ? 'warning-outline' : 'checkmark-circle-outline'} size={20} color={quality.issues.length ? '#F4C98C' : '#A8D9C0'} />
-      <View style={{ flex: 1 }}>
-        <Text style={s.text}>{quality.issues.length ? quality.issues.join(' · ') : 'Явных проблем не найдено'}</Text>
-        <Text style={s.hint}>При 240 dpi: до {quality.maxPrintWidthCm} × {quality.maxPrintHeightCm} см. Оценка приблизительная.</Text>
-      </View>
-    </View>}
-    <View style={s.grid}>{tools.map(tool => <Pressable key={tool.id} accessibilityRole="button" disabled={disabled} onPress={() => onTool(tool.id)} style={[s.tool, s.cell, disabled && s.disabled]}>
-      <Ionicons name={tool.icon} size={19} color="#EC7777" /><Text style={s.text}>{tool.label}</Text>
-    </Pressable>)}</View>
-    <Pressable accessibilityRole="button" accessibilityState={{ expanded }} onPress={() => setExpanded(!expanded)} style={s.tool}>
-      <Ionicons name="color-filter-outline" size={19} color="#EC7777" /><Text style={s.text}>Фильтры и стили</Text><Ionicons name={expanded ? 'chevron-up' : 'chevron-down'} size={16} color="#fff" />
-    </Pressable>
-    {expanded && <View style={s.grid}>{filters.map(tool => <Pressable key={tool.id} accessibilityRole="button" disabled={disabled} onPress={() => onTool(tool.id)} style={[s.tool, s.cell, disabled && s.disabled]}><Ionicons name={tool.icon} size={16} color="#EC7777" /><Text style={s.text}>{tool.label}</Text></Pressable>)}</View>}
-    <Text style={s.hint}>На устройстве, без отправки фото. Свыше 8 Мп обработка идёт по уменьшенной копии (длинная сторона до 2000 px), если не включён явный выбор ниже. Удаление фона подходит для однотонного фона.</Text>
-    <View style={s.grid}>
-      <Pressable accessibilityRole="button" disabled={disabled || !canUndo} onPress={onUndo} style={[s.tool, s.cell, (!canUndo || disabled) && s.disabled]}><Ionicons name="arrow-undo-outline" size={17} color="#fff" /><Text style={s.text}>Отменить обработку</Text></Pressable>
-      <Pressable accessibilityRole="button" disabled={disabled} onPress={onReset} style={[s.tool, s.cell, disabled && s.disabled]}><Text style={s.text}>Вернуть оригинал</Text></Pressable>
-    </View>
+    <View style={s.tabs}>{(['correction', 'filters'] as const).map(id => <Pressable key={id} accessibilityRole="tab" accessibilityState={{ selected: tab === id }} onPress={() => setTab(id)} style={[s.tab, tab === id && s.tabOn]}><Text style={[s.tabText, tab === id && s.tabTextOn]}>{id === 'correction' ? 'Коррекция' : 'Фильтры'}</Text></Pressable>)}</View>
+    <View style={s.grid}>{(tab === 'correction' ? corrections : filters).map(tool => {
+      const selected = active.includes(tool.id);
+      return <Pressable key={tool.id} accessibilityRole="button" accessibilityLabel={tool.label} aria-pressed={selected} accessibilityState={{ selected, disabled }} disabled={disabled} onPress={() => onTool(tool.id)} style={[s.tool, s.cell, selected && s.toolOn, disabled && s.disabled]}>
+        <View style={[s.toolIcon, selected && s.toolIconOn]}><Ionicons name={tool.icon} size={22} color={selected ? '#fff' : '#364C49'} /></View>
+        <Text style={s.text}>{tool.label}</Text><Text style={s.toolHint}>{tool.hint}</Text>
+        {selected && <Ionicons name="checkmark-circle" size={16} color="#DD5757" style={s.selected} />}
+      </Pressable>;
+    })}</View>
   </View>;
 }
